@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Backdoor Grill Cashier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/style.css">
+<style>
+.cash-top{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-block:16px}
+@media (max-width:640px){.cash-top{grid-template-columns:repeat(2,1fr)}}
+.cash-top .tile .v{font-size:24px}
+.tile.drawer{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tile.drawer .k{color:var(--bg);opacity:.75}
+.search{font-size:17px;padding:12px 14px;margin-bottom:12px}
+.guest{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:14px;display:grid;grid-template-columns:1fr auto;gap:8px 12px;align-items:center}
+.guest.done{opacity:.7}
+.guest .nm{font-size:18px;font-weight:700;min-width:0;overflow-wrap:anywhere}
+.guest .sub{grid-column:1/-1;font-size:14px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 14px}
+.guest .act{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn.big{font-size:17px;padding:13px 18px}
+.btn.ok{background:var(--good);color:#fff}
+.hint{font-size:13px;color:var(--warn);background:var(--warn-bg);padding:6px 10px;border-radius:6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chips button{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:999px;padding:6px 12px;font:500 14px var(--body);cursor:pointer}
+.xrow{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:15px}
+.cols{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;align-items:start}
+@media (max-width:820px){.cols{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="wrap topnav">
+    <div><div class="eyebrow">Cashier</div><h1 style="font-size:clamp(28px,6vw,40px)">Backdoor Grill</h1><div class="facts" style="margin-top:4px"><span>Tonight <b id="tDate">—</b></span><span><b id="tTime"></b></span></div></div>
+    <button class="btn ghost sm" id="logoutBtn" style="color:#F4F1E8;border-color:#4a524d" hidden>Log out</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="block login" id="loginBox" hidden>
+    <h2>Cashier login</h2>
+    <p class="sub">Enter the cashier PIN from the owner.</p>
+    <form id="loginForm" class="row">
+      <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" style="max-width:180px;font-size:20px;letter-spacing:.2em">
+      <button class="btn big" type="submit">Open</button>
+    </form>
+    <div class="msg" id="loginMsg" role="status"></div>
+  </section>
+
+  <div id="app" hidden>
+    <div class="cash-top">
+      <div class="tile"><div class="k">Guests expected</div><div class="v" id="sExpected">0</div></div>
+      <div class="tile"><div class="k">Guests arrived</div><div class="v" id="sArrived">0</div></div>
+      <div class="tile"><div class="k">Still to collect</div><div class="v" id="sPending">₱0</div></div>
+      <div class="tile drawer"><div class="k">Cash in drawer (tonight)</div><div class="v" id="sDrawer">₱0</div></div>
+    </div>
+
+    <div class="cols">
+      <section>
+        <h2 style="margin-bottom:8px">Guest list</h2>
+        <input id="q" class="search" placeholder="Search name or booking code" autocomplete="off">
+        <div class="list" id="list"></div>
+      </section>
+
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <section class="block" style="margin:0">
+          <h2>Walk-in guests</h2>
+          <p class="sub">No booking. They pay the full amount in cash now.</p>
+          <div class="fields">
+            <label class="f">Name<input id="wName" placeholder="Walk-in"></label>
+            <label class="f">Guests<input id="wPax" type="number" min="1" value="2" inputmode="numeric"></label>
+          </div>
+          <div class="total"><span>Collect cash</span><span class="amt mono" id="wTotal">₱0</span></div>
+          <div class="row" style="margin-top:10px"><button class="btn big" id="wBtn">Add walk-in &amp; collect</button></div>
+          <div class="msg" id="wMsg" role="status"></div>
+        </section>
+
+        <section class="block" style="margin:0">
+          <h2>Extra sales</h2>
+          <p class="sub">Anything else paid in cash tonight.</p>
+          <div class="chips" id="chips">
+            <button type="button">Extra drinks</button><button type="button">Leftover charge</button><button type="button">Soju / beer</button><button type="button">Cheese add-on</button>
+          </div>
+          <div class="fields">
+            <label class="f">What was sold<input id="xDesc" placeholder="Extra drinks"></label>
+            <label class="f">Amount (₱)<input id="xAmt" type="number" min="1" inputmode="decimal"></label>
+          </div>
+          <div class="row" style="margin-top:10px"><button class="btn big" id="xBtn">Add sale</button></div>
+          <div class="msg" id="xMsg" role="status"></div>
+          <div id="xList" style="margin-top:8px"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const peso = n => "₱" + Number(n||0).toLocaleString("en-PH",{maximumFractionDigits:2});
+  const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const niceDate = s => { const [y,m,d]=s.split("-").map(Number); return DOW[new Date(Date.UTC(y,m-1,d)).getUTCDay()]+", "+MON[m-1]+" "+d; };
+  let data = null, confirmCode = null;
+
+  async function api(url, opts){
+    const r = await fetch(url, opts);
+    if (r.status === 401) { showLogin(); throw new Error("login"); }
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok) { const e = new Error(j.error || "Something went wrong."); e.data = j; throw e; }
+    return j;
+  }
+  const post = (url, body) => api(url, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body||{})});
+  function showLogin(){ $("loginBox").hidden=false; $("app").hidden=true; $("logoutBtn").hidden=true; }
+  function showApp(){ $("loginBox").hidden=true; $("app").hidden=false; $("logoutBtn").hidden=false; }
+
+  $("loginForm").onsubmit = async e => {
+    e.preventDefault(); const m=$("loginMsg"); m.className="msg"; m.textContent="…";
+    try { await post("/api/cashier/login", {pin:$("pin").value}); $("pin").value=""; m.textContent=""; showApp(); load(); }
+    catch(err){ if(err.message!=="login"){ m.className="msg err"; m.textContent=err.message; } }
+  };
+  $("logoutBtn").onclick = async () => { await fetch("/api/cashier/logout",{method:"POST"}); showLogin(); };
+
+  async function load(){
+    try { data = await api("/api/cashier/tonight"); render(); } catch(e){}
+  }
+
+  function render(){
+    $("tDate").textContent = niceDate(data.date); $("tTime").textContent = data.timeLabel;
+    const B = data.bookings;
+    const expected = B.filter(b=>b.status!=="noshow").reduce((s,b)=>s+b.pax,0);
+    const arrived = B.filter(b=>b.status==="arrived");
+    const collected = arrived.reduce((s,b)=>s+b.balance,0);
+    const extras = data.extras.reduce((s,x)=>s+x.amount,0);
+    const toCollect = B.filter(b=>b.status==="confirmed").reduce((s,b)=>s+b.balance,0);
+    $("sExpected").textContent = expected;
+    $("sArrived").textContent = arrived.reduce((s,b)=>s+b.pax,0);
+    $("sPending").textContent = peso(toCollect);
+    $("sDrawer").textContent = peso(collected + extras);
+
+    const q = $("q").value.trim().toLowerCase();
+    const order = {confirmed:0,pending:1,arrived:2,noshow:3};
+    const rows = B.filter(b=>!q || b.name.toLowerCase().includes(q) || b.code.toLowerCase().includes(q))
+      .sort((a,b)=>(order[a.status]-order[b.status]) || a.name.localeCompare(b.name));
+    const list = $("list"); list.textContent = "";
+    if (!rows.length) { const e=document.createElement("div"); e.className="empty"; e.textContent = B.length ? "No guest matches your search." : "No bookings for tonight yet."; list.appendChild(e); }
+    rows.forEach(b => {
+      const c = document.createElement("div"); c.className = "guest" + (b.status==="arrived"||b.status==="noshow" ? " done" : "");
+      const nm = document.createElement("div"); nm.className="nm"; nm.textContent = b.name + " · " + b.pax + (b.pax>1?" guests":" guest");
+      const pill = document.createElement("span"); pill.className = "pill st-" + b.status;
+      pill.textContent = {confirmed:"Booked",pending:"Not verified",arrived:b.walkin?"Walk-in paid":"Arrived · paid",noshow:"No-show"}[b.status];
+      const sub = document.createElement("div"); sub.className="sub";
+      const add = t => { const s=document.createElement("span"); s.textContent=t; sub.appendChild(s); };
+      add("Code " + b.code);
+      if (!b.walkin) add("Down payment " + peso(b.deposit) + " (GCash)");
+      add((b.walkin ? "Paid " : "Balance ") + peso(b.balance) + " cash");
+      if (b.note && !b.walkin) add("Note: " + b.note);
+      const act = document.createElement("div"); act.className="act";
+      const btn = (label, cls, fn) => { const x=document.createElement("button"); x.type="button"; x.className="btn "+cls; x.textContent=label; x.onclick=fn; act.appendChild(x); return x; };
+      if (b.status === "confirmed") {
+        if (confirmCode === b.code) {
+          const t=document.createElement("strong"); t.textContent="Received " + peso(b.balance) + " cash?"; act.appendChild(t);
+          btn("Yes, received", "big ok", () => checkin(b.code, "arrived"));
+          btn("Back", "ghost", () => { confirmCode=null; render(); });
+        } else {
+          btn("Collect " + peso(b.balance) + " cash", "big", () => { confirmCode=b.code; render(); });
+          btn("No-show", "ghost sm", () => checkin(b.code, "noshow"));
+        }
+      } else if (b.status === "pending") {
+        const h=document.createElement("span"); h.className="hint"; h.textContent="GCash down payment not verified yet. Ask the manager before seating."; act.appendChild(h);
+      } else if (!b.walkin) {
+        btn("Undo", "ghost sm", () => checkin(b.code, "confirmed"));
+      }
+      c.append(nm, pill, sub, act); list.appendChild(c);
+    });
+
+    const xl = $("xList"); xl.textContent = "";
+    data.extras.forEach(x => {
+      const r=document.createElement("div"); r.className="xrow";
+      const l=document.createElement("span"); l.textContent=x.description;
+      const rr=document.createElement("span"); rr.className="row"; rr.style.gap="8px";
+      const a=document.createElement("b"); a.className="mono"; a.textContent=peso(x.amount);
+      const d=document.createElement("button"); d.className="btn ghost sm"; d.textContent="Remove";
+      d.onclick=async()=>{ d.disabled=true; try{ await api("/api/cashier/extra/"+x.id,{method:"DELETE"}); load(); }catch(e){ d.disabled=false; } };
+      rr.append(a,d); r.append(l,rr); xl.appendChild(r);
+    });
+    walkTotal();
+  }
+
+  async function checkin(code, action){
+    confirmCode = null;
+    try { await post("/api/cashier/checkin/"+encodeURIComponent(code), {action}); } catch(e){ if(e.message!=="login") alertMsg(e.message); }
+    load();
+  }
+  function alertMsg(t){ const e=document.createElement("div"); e.className="banner"; e.textContent=t; $("list").prepend(e); setTimeout(()=>e.remove(), 5000); }
+
+  function walkTotal(){ $("wTotal").textContent = peso((parseInt($("wPax").value,10)||0) * (data ? data.price : 0)); }
+  $("wPax").addEventListener("input", walkTotal);
+  let forceWalk = false;
+  $("wBtn").onclick = async () => {
+    const m=$("wMsg"); m.className="msg"; m.textContent="…";
+    try {
+      const j = await post("/api/cashier/walkin", {name:$("wName").value, pax:$("wPax").value, force:forceWalk});
+      m.className="msg ok"; m.textContent="Added. Collected " + peso(j.total) + " cash."; $("wName").value=""; $("wPax").value=2; forceWalk=false; $("wBtn").textContent="Add walk-in & collect"; load();
+    } catch(e){
+      if(e.message==="login") return;
+      m.className="msg err"; m.textContent=e.message;
+      if (e.data && e.data.full) { forceWalk = true; $("wBtn").textContent = "Add anyway (over capacity)"; }
+    }
+  };
+  $("chips").onclick = e => { if (e.target.tagName==="BUTTON") { $("xDesc").value = e.target.textContent; $("xAmt").focus(); } };
+  $("xBtn").onclick = async () => {
+    const m=$("xMsg"); m.className="msg"; m.textContent="…";
+    try { await post("/api/cashier/extra", {description:$("xDesc").value, amount:$("xAmt").value}); m.className="msg ok"; m.textContent="Sale added."; $("xDesc").value=""; $("xAmt").value=""; load(); }
+    catch(e){ if(e.message!=="login"){ m.className="msg err"; m.textContent=e.message; } }
+  };
+  $("q").addEventListener("input", () => data && render());
+
+  fetch("/api/cashier/me").then(r=>r.json()).then(j=>{ if(j.loggedIn){ showApp(); load(); } else showLogin(); }).catch(showLogin);
+  setInterval(()=>{ if(!$("app").hidden && !confirmCode) load(); }, 30000);
+})();
+</script>
+</body>
+</html>

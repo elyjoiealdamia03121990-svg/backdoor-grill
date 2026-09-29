@@ -18,7 +18,7 @@
     <div class="facts">
       <span>Grill time <b id="hTime">6:00–8:30 PM</b></span>
       <span>Cut-off <b id="hCut">12:00 NN on the day itself</b></span>
-      <span><b>Non-refundable</b></span>
+      <span><b id="hDep">20%</b> down payment, balance cash at venue</span>
     </div>
   </div>
 </header>
@@ -59,26 +59,28 @@
           <label class="f">Mobile number<input id="fPhone" inputmode="tel" autocomplete="tel" placeholder="09XX XXX XXXX" maxlength="20"></label>
           <label class="f" style="grid-column:1/-1">Note <span class="h">Optional: birthday, kids, allergies, etc.</span><input id="fNote" placeholder="Mom's birthday" maxlength="200"></label>
         </div>
-        <div class="total"><span>Total to pay</span><span class="amt mono" id="totalAmt">₱698</span></div>
+        <div class="total"><span>Total</span><span class="mono" style="font-size:18px;font-weight:600" id="totalAmt">₱698</span></div>
+        <div class="total" style="border-top:0;margin-top:0;padding-top:4px"><span>Down payment now (<span id="depPct">20</span>%, GCash)</span><span class="amt mono" id="depAmt">₱140</span></div>
+        <div class="total" style="border-top:0;margin-top:0;padding-top:0"><span>Balance at the venue (cash)</span><span class="mono" style="font-size:18px;font-weight:600" id="balAmt">₱558</span></div>
       </section>
 
       <section class="block">
         <div class="steplab">3 · Pay ahead</div>
-        <h2>Pay to reserve</h2>
-        <p class="sub">Send the total via GCash, then enter the reference number.</p>
+        <h2>Pay the down payment</h2>
+        <p class="sub">Send the down payment via GCash, then enter the reference number. Pay the balance in cash when you arrive.</p>
         <dl class="pay">
           <dt>GCash name</dt><dd id="pName">—</dd>
           <dt>GCash number</dt><dd class="mono" id="pNum">—</dd>
-          <dt>Amount</dt><dd class="mono" id="pAmt">₱698</dd>
+          <dt>Down payment</dt><dd class="mono" id="pAmt">₱698</dd>
         </dl>
         <label class="f" style="margin-bottom:12px">GCash reference no.<input id="fRef" inputmode="numeric" placeholder="13-digit ref no." class="mono" maxlength="30"></label>
         <ul class="terms">
-          <li>Payment is non-refundable. If you cannot make it, we cannot refund it.</li>
+          <li>The down payment is non-refundable. If you cannot make it, we keep it to cover your reserved seats.</li>
           <li>You may move to another night if you message us before the cut-off and seats are available.</li>
           <li>Arrive by 6:00 PM. Last call for the grill is 8:15 PM; we close at 8:30 PM.</li>
           <li>Excessive leftovers are charged.</li>
         </ul>
-        <label class="check"><input type="checkbox" id="fAgree"><span>I have read and agree to the rules. I understand the payment is <b>non-refundable</b>.</span></label>
+        <label class="check"><input type="checkbox" id="fAgree"><span>I have read and agree to the rules. I understand the down payment is <b>non-refundable</b>.</span></label>
         <div class="row" style="margin-top:12px"><button class="btn" id="submitBtn" disabled>Submit booking</button></div>
         <div class="msg" id="bookMsg" role="status"></div>
       </section>
@@ -129,7 +131,7 @@
     paint();
   }
   function paint(){
-    $("hPrice").textContent = cfg.price; $("hTime").textContent = cfg.timeLabel;
+    $("hPrice").textContent = cfg.price; $("hTime").textContent = cfg.timeLabel; $("hDep").textContent = cfg.depositPct + "%";
     $("hCut").textContent = hourLabel(cfg.cutoffHour) + (cfg.cutoffDaysBefore ? " the day before" : " on the day itself");
     $("pName").textContent = cfg.gcashName; $("pNum").textContent = cfg.gcashNumber;
     const el = $("days"); el.textContent = "";
@@ -153,7 +155,8 @@
     if(pax>maxAllowed() && maxAllowed()>0) pax=maxAllowed();
     $("pax").textContent=pax;
     $("paxNote").textContent="× "+peso(cfg.price)+" per person"+(selDate?" · "+dayOf(selDate).left+" seats left":"");
-    const tot=pax*cfg.price; $("totalAmt").textContent=peso(tot); $("pAmt").textContent=peso(tot);
+    const tot=pax*cfg.price, dep=Math.min(tot,Math.ceil(tot*(Number(cfg.depositPct)||0)/100));
+    $("totalAmt").textContent=peso(tot); $("depPct").textContent=cfg.depositPct; $("depAmt").textContent=peso(dep); $("balAmt").textContent=peso(tot-dep); $("pAmt").textContent=peso(dep);
     $("submitBtn").disabled = !(selDate && $("fName").value.trim() && $("fPhone").value.replace(/\D/g,"").length>=10 && $("fRef").value.trim().length>=6 && $("fAgree").checked);
   }
   $("paxMinus").onclick=()=>{ if(pax>1){pax--;syncForm();} };
@@ -169,7 +172,7 @@
       const j=await r.json();
       if(!r.ok){ msg.className="msg err"; msg.textContent=j.error||"Could not save your booking. Please try again."; await load(); return; }
       $("doneCode").textContent=j.code;
-      $("doneText").textContent=niceDate(j.date)+" · "+j.pax+" guests · "+peso(j.total)+" · "+j.timeLabel;
+      $("doneText").textContent=niceDate(j.date)+" · "+j.pax+" guests · "+j.timeLabel+" · Down payment "+peso(j.deposit)+" · Balance "+peso(j.balance)+" cash at the venue";
       $("bookForm").hidden=true; $("bookDone").hidden=false; msg.textContent="";
       window.scrollTo({top:0,behavior:"smooth"});
     }catch(e){ msg.className="msg err"; msg.textContent="No connection. Please try again."; syncForm(); }
@@ -183,7 +186,7 @@
       const r=await fetch("/api/bookings/"+encodeURIComponent(code)); const j=await r.json();
       if(!r.ok){ out.className="msg err"; out.textContent=j.error; return; }
       const p=document.createElement("span"); p.className="pill st-"+j.status; p.textContent=STL[j.status]||j.status;
-      out.textContent=niceDate(j.date)+" · "+j.pax+" guests · "+peso(j.total)+"  "; out.appendChild(p);
+      out.textContent=niceDate(j.date)+" · "+j.pax+" guests · Total "+peso(j.total)+" · Balance "+peso(j.balance)+" cash  "; out.appendChild(p);
     }catch(e){ out.className="msg err"; out.textContent="No connection."; }
   };
   $("chkCode").addEventListener("keydown",e=>{ if(e.key==="Enter") $("chkBtn").click(); });

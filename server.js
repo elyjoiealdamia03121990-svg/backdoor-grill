@@ -4,6 +4,7 @@ const express = require("express");
 const crypto = require("crypto");
 const path = require("path");
 const { Pool } = require("pg");
+const makeBackoffice = require("./backoffice");
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -23,6 +24,7 @@ const DEFAULTS = {
   cutoffHour: 12, cutoffDaysBefore: 0,
   gcashName: "(set GCash name in admin)", gcashNumber: "09XX XXX XXXX",
   timeLabel: "6:00–8:30 PM", openDays: [0, 1, 2, 3, 4, 5, 6], closedDates: [],
+  depositPct: 20,
 };
 const STATUSES = ["pending", "confirmed", "arrived", "noshow", "cancelled"];
 
@@ -44,9 +46,15 @@ async function migrate() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS bookings_date_idx ON bookings(date);
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deposit INT;
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS balance INT;
+    UPDATE bookings SET deposit = total, balance = 0 WHERE deposit IS NULL;
   `);
+  await backoffice.migrate();
   await pool.query(`INSERT INTO config(id, data) VALUES (1, $1) ON CONFLICT (id) DO NOTHING`, [DEFAULTS]);
 }
+
+const depositFor = (total, cfg) => Math.min(total, Math.ceil(total * (Number(cfg.depositPct) || 0) / 100));
 
 async function getConfig(client = pool) {
   const r = await client.query("SELECT data FROM config WHERE id = 1");
@@ -70,20 +78,28 @@ function dayClosedReason(date, cfg) {
 
 // ---- Admin session (signed cookie, 12 hours) ----
 function sign(v) { return crypto.createHmac("sha256", SESSION_SECRET).update(v).digest("hex"); }
-function makeToken() { const exp = String(Date.now() + 12 * 3600e3); return exp + "." + sign(exp); }
-function validToken(t) {
-  if (!t) return false;
-  const [exp, sig] = t.split(".");
-  if (!exp || !sig || sig.length !== 64) return false;
-  const good = sign(exp);
-  return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good)) && Number(exp) > Date.now();
+function makeToken(role = "admin") { const body = role + "-" + (Date.now() + 14 * 3600e3); return body + "." + sign(body); }
+// Returns the role ("admin" / "cashier") of a valid token, or null.
+function tokenRole(t) {
+  if (!t) return null;
+  const i = t.lastIndexOf(".");
+  const body = t.slice(0, i), sig = t.slice(i + 1);
+  if (i < 1 || sig.length !== 64) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(sign(body)))) return null;
+  const [role, exp] = body.split("-");
+  return Number(exp) > Date.now() && (role === "admin" || role === "cashier") ? role : null;
 }
+const validToken = t => tokenRole(t) === "admin";
 function readCookie(req, name) {
   const m = (req.headers.cookie || "").split(";").map(s => s.trim()).find(s => s.startsWith(name + "="));
   return m ? decodeURIComponent(m.slice(name.length + 1)) : null;
 }
 function requireAdmin(req, res, next) {
   if (validToken(readCookie(req, "adm"))) return next();
+  res.status(401).json({ error: "Please log in." });
+}
+function requireCashier(req, res, next) {
+  if (tokenRole(readCookie(req, "csh")) === "cashier" || validToken(readCookie(req, "adm"))) return next();
   res.status(401).json({ error: "Please log in." });
 }
 
@@ -101,6 +117,7 @@ function limit(max, windowMs) {
 setInterval(() => { const now = Date.now(); for (const [k, v] of hits) if (!v.some(t => now - t < 3600e3)) hits.delete(k); }, 600e3).unref();
 
 const app = express();
+const backoffice = makeBackoffice(pool, { todayManila, addDays, isValidDate });
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "20kb" }));
 app.use((req, res, next) => {
@@ -113,6 +130,7 @@ const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 const page = f => (req, res) => res.sendFile(path.join(__dirname, f));
 app.get("/", page("index.html"));
 app.get("/admin", page("admin.html"));
+app.get("/cashier", page("cashier.html"));
 app.get("/style.css", page("style.css"));
 app.get("/healthz", (req, res) => res.send("ok"));
 
@@ -128,8 +146,8 @@ app.get("/api/public", wrap(async (req, res) => {
     const d = addDays(from, i), reason = dayClosedReason(d, cfg), left = Math.max(0, cfg.capacity - (heads[d] || 0));
     days.push({ date: d, left, status: reason ? (Date.now() >= cutoffInstant(d, cfg) ? "cutoff" : "closed") : (left > 0 ? "open" : "full") });
   }
-  const { price, maxPax, cutoffHour, cutoffDaysBefore, gcashName, gcashNumber, timeLabel, capacity } = cfg;
-  res.json({ config: { price, maxPax, cutoffHour, cutoffDaysBefore, gcashName, gcashNumber, timeLabel, capacity }, days, today: from });
+  const { price, maxPax, cutoffHour, cutoffDaysBefore, gcashName, gcashNumber, timeLabel, capacity, depositPct } = cfg;
+  res.json({ config: { price, maxPax, cutoffHour, cutoffDaysBefore, gcashName, gcashNumber, timeLabel, capacity, depositPct }, days, today: from });
 }));
 
 app.post("/api/bookings", limit(8, 15 * 60e3), wrap(async (req, res) => {
@@ -166,17 +184,18 @@ app.post("/api/bookings", limit(8, 15 * 60e3), wrap(async (req, res) => {
       const ex = await client.query("SELECT 1 FROM bookings WHERE code = $1", [code]);
       if (!ex.rowCount) break;
     }
+    const total = pax * cfg.price, deposit = depositFor(total, cfg), balance = total - deposit;
     await client.query(
-      `INSERT INTO bookings(code, date, pax, price, total, name, phone, note, gcash_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [code, date, pax, cfg.price, pax * cfg.price, name, phone, note, gcashRef]);
+      `INSERT INTO bookings(code, date, pax, price, total, name, phone, note, gcash_ref, deposit, balance) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [code, date, pax, cfg.price, total, name, phone, note, gcashRef, deposit, balance]);
     await client.query("COMMIT");
-    res.json({ code, date, pax, total: pax * cfg.price, timeLabel: cfg.timeLabel, status: "pending" });
+    res.json({ code, date, pax, total, deposit, balance, timeLabel: cfg.timeLabel, status: "pending" });
   } catch (e) { await client.query("ROLLBACK").catch(() => {}); throw e; }
   finally { client.release(); }
 }));
 
 app.get("/api/bookings/:code", limit(30, 15 * 60e3), wrap(async (req, res) => {
-  const r = await pool.query("SELECT code, date, pax, total, status FROM bookings WHERE code = $1", [String(req.params.code).toUpperCase()]);
+  const r = await pool.query("SELECT code, date, pax, total, deposit, balance, status FROM bookings WHERE code = $1", [String(req.params.code).toUpperCase()]);
   if (!r.rowCount) return res.status(404).json({ error: "Booking code not found." });
   res.json(r.rows[0]);
 }));
@@ -198,7 +217,7 @@ app.get("/api/admin/bookings", requireAdmin, wrap(async (req, res) => {
   const date = String(req.query.date || todayManila());
   if (!isValidDate(date)) return res.status(400).json({ error: "Invalid date." });
   const r = await pool.query(
-    `SELECT code, date, pax, price, total, name, phone, note, gcash_ref AS "gcashRef", status, created_at AS "createdAt"
+    `SELECT code, date, pax, price, total, deposit, balance, name, phone, note, gcash_ref AS "gcashRef", status, created_at AS "createdAt"
      FROM bookings WHERE date = $1 ORDER BY created_at`, [date]);
   const totals = await pool.query(
     `SELECT date, SUM(pax)::int AS heads, COUNT(*) FILTER (WHERE status='pending')::int AS pending
@@ -209,7 +228,7 @@ app.get("/api/admin/bookings", requireAdmin, wrap(async (req, res) => {
 app.patch("/api/admin/bookings/:code", requireAdmin, wrap(async (req, res) => {
   const status = String((req.body || {}).status || "");
   if (!STATUSES.includes(status)) return res.status(400).json({ error: "Invalid status." });
-  const r = await pool.query("UPDATE bookings SET status = $1, updated_at = now() WHERE code = $2 RETURNING code", [status, req.params.code]);
+  const r = await pool.query("UPDATE bookings SET status = $1, arrived_on = CASE WHEN $1 = 'arrived' THEN COALESCE(arrived_on, $3) ELSE NULL END, updated_at = now() WHERE code = $2 RETURNING code", [status, req.params.code, todayManila()]);
   if (!r.rowCount) return res.status(404).json({ error: "Booking not found." });
   res.json({ ok: true });
 }));
@@ -228,6 +247,8 @@ app.put("/api/admin/config", requireAdmin, wrap(async (req, res) => {
     gcashName: String(b.gcashName ?? cur.gcashName).slice(0, 80),
     gcashNumber: String(b.gcashNumber ?? cur.gcashNumber).slice(0, 30),
     timeLabel: String(b.timeLabel || cur.timeLabel).slice(0, 40),
+    depositPct: int(b.depositPct, 0, 100, cur.depositPct),
+    cashierPin: /^\d{4,8}$/.test(String(b.cashierPin || "")) ? String(b.cashierPin) : (b.cashierPin === "" ? "" : (cur.cashierPin || "")),
     openDays: Array.isArray(b.openDays) ? [...new Set(b.openDays.map(Number).filter(n => n >= 0 && n <= 6))] : cur.openDays,
     closedDates: Array.isArray(b.closedDates) ? b.closedDates.map(String).filter(isValidDate).slice(0, 100) : cur.closedDates,
   };
@@ -236,11 +257,79 @@ app.put("/api/admin/config", requireAdmin, wrap(async (req, res) => {
 }));
 
 app.get("/api/admin/export.csv", requireAdmin, wrap(async (req, res) => {
-  const r = await pool.query(`SELECT code, date, pax, total, name, phone, note, gcash_ref, status, created_at FROM bookings ORDER BY date, created_at`);
+  const r = await pool.query(`SELECT code, date, pax, total, deposit, balance, name, phone, note, gcash_ref, status, created_at FROM bookings ORDER BY date, created_at`);
   const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines = ["code,date,pax,total,name,phone,note,gcash_ref,status,created_at", ...r.rows.map(x => [x.code, x.date, x.pax, x.total, x.name, x.phone, x.note, x.gcash_ref, x.status, x.created_at.toISOString()].map(esc).join(","))];
+  const lines = ["code,date,pax,total,down_payment,balance_at_venue,name,phone,note,gcash_ref,status,created_at", ...r.rows.map(x => [x.code, x.date, x.pax, x.total, x.deposit, x.balance, x.name, x.phone, x.note, x.gcash_ref, x.status, x.created_at.toISOString()].map(esc).join(","))];
   res.set({ "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="backdoor-grill-bookings-${todayManila()}.csv"` });
   res.send("﻿" + lines.join("\n"));
+}));
+
+backoffice.routes(app, requireAdmin, wrap);
+
+// ---- Cashier window (tonight only: check-in, collect balance, walk-ins, extra sales) ----
+app.post("/api/cashier/login", limit(10, 15 * 60e3), wrap(async (req, res) => {
+  const cfg = await getConfig();
+  const pin = String((req.body || {}).pin || "");
+  const good = String(cfg.cashierPin || "");
+  const ok = good.length >= 4 && pin.length === good.length && crypto.timingSafeEqual(Buffer.from(pin), Buffer.from(good));
+  if (!ok) return res.status(401).json({ error: good ? "Wrong PIN." : "No cashier PIN yet. Ask the owner to set one in Back office → Settings." });
+  const secure = req.secure ? "; Secure" : "";
+  res.set("Set-Cookie", `csh=${makeToken("cashier")}; HttpOnly; SameSite=Strict; Path=/; Max-Age=50400${secure}`);
+  res.json({ ok: true });
+}));
+app.post("/api/cashier/logout", (req, res) => { res.set("Set-Cookie", "csh=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"); res.json({ ok: true }); });
+app.get("/api/cashier/me", (req, res) => res.json({ loggedIn: tokenRole(readCookie(req, "csh")) === "cashier" || validToken(readCookie(req, "adm")) }));
+
+app.get("/api/cashier/tonight", requireCashier, wrap(async (req, res) => {
+  const date = todayManila(), cfg = await getConfig();
+  const b = await pool.query(`SELECT code, pax, total, deposit, balance, name, phone, note, status, gcash_ref LIKE 'WALKIN-%' AS walkin
+    FROM bookings WHERE date = $1 AND status <> 'cancelled' ORDER BY name`, [date]);
+  const x = await pool.query(`SELECT id, description, amount::float FROM other_income WHERE date = $1 ORDER BY id DESC`, [date]);
+  res.json({ date, timeLabel: cfg.timeLabel, capacity: cfg.capacity, price: cfg.price, bookings: b.rows, extras: x.rows });
+}));
+
+app.post("/api/cashier/checkin/:code", requireCashier, wrap(async (req, res) => {
+  const action = (req.body || {}).action;
+  if (!["arrived", "noshow", "confirmed"].includes(action)) return res.status(400).json({ error: "Invalid action." });
+  const r = await pool.query(`UPDATE bookings SET status = $1, arrived_on = CASE WHEN $1 = 'arrived' THEN $3 ELSE NULL END, updated_at = now()
+    WHERE code = $2 AND date = $3 AND status IN ('confirmed','arrived','noshow') RETURNING code`, [action, req.params.code, todayManila()]);
+  if (!r.rowCount) return res.status(409).json({ error: "This booking is not confirmed yet. Ask the manager to verify the GCash down payment." });
+  res.json({ ok: true });
+}));
+
+app.post("/api/cashier/walkin", requireCashier, wrap(async (req, res) => {
+  const b = req.body || {};
+  const name = String(b.name || "Walk-in").trim().slice(0, 80) || "Walk-in";
+  const pax = parseInt(b.pax, 10);
+  const date = todayManila();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["night:" + date]);
+    const cfg = await getConfig(client);
+    if (!Number.isInteger(pax) || pax < 1 || pax > 50) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Enter the number of guests." }); }
+    const used = (await client.query(`SELECT COALESCE(SUM(pax),0)::int AS h FROM bookings WHERE date = $1 AND status <> 'cancelled'`, [date])).rows[0].h;
+    if (pax > cfg.capacity - used && !b.force) { await client.query("ROLLBACK"); return res.status(409).json({ error: `Only ${Math.max(0, cfg.capacity - used)} seat(s) left tonight.`, full: true }); }
+    const code = "WI-" + Array.from(crypto.randomBytes(4)).map(x => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[x % 32]).join("");
+    const total = pax * cfg.price;
+    await client.query(`INSERT INTO bookings(code, date, pax, price, total, name, phone, note, gcash_ref, deposit, balance, status, arrived_on)
+      VALUES ($1,$2,$3,$4,$5,$6,'',$7,$8,0,$5,'arrived',$2)`, [code, date, pax, cfg.price, total, name, "Walk-in", "WALKIN-" + code]);
+    await client.query("COMMIT");
+    res.json({ ok: true, code, total });
+  } catch (e) { await client.query("ROLLBACK").catch(() => {}); throw e; } finally { client.release(); }
+}));
+
+app.post("/api/cashier/extra", requireCashier, wrap(async (req, res) => {
+  const description = String((req.body || {}).description || "").trim().slice(0, 120);
+  const amount = Number((req.body || {}).amount);
+  if (!description) return res.status(400).json({ error: "What was sold? (e.g. extra drinks, leftover charge)" });
+  if (!(amount > 0)) return res.status(400).json({ error: "Enter the amount." });
+  await pool.query("INSERT INTO other_income(date, description, amount) VALUES ($1,$2,$3)", [todayManila(), description, amount]);
+  res.json({ ok: true });
+}));
+app.delete("/api/cashier/extra/:id", requireCashier, wrap(async (req, res) => {
+  await pool.query("DELETE FROM other_income WHERE id = $1 AND date = $2", [parseInt(req.params.id, 10), todayManila()]);
+  res.json({ ok: true });
 }));
 
 app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: "Server error. Please try again." }); });

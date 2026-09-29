@@ -59,7 +59,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .stepper{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;width:max-content}
 .stepper button{border:0;background:var(--bg);color:var(--ink);width:42px;height:40px;font-size:20px;cursor:pointer}
 .stepper output{min-width:54px;text-align:center;font-family:var(--mono);font-weight:600;font-size:17px}
-.total{display:flex;justify-content:space-between;align-items:baseline;border-top:1px dashed var(--line);margin-top:14px;padding-top:12px}
+.total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-top:1px dashed var(--line);margin-top:14px;padding-top:12px}
 .total .amt{font-family:var(--display);font-size:30px;color:var(--accent)}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .pay{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-block:10px 12px;font-size:14px}
