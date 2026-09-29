@@ -371,6 +371,37 @@ app.post("/api/cashier/checkin/:code", requireCashier, wrap(async (req, res) => 
   res.json({ ok: true });
 }));
 
+// Change the number of guests on tonight's booking (extra guests arrive, or fewer come).
+// Adding guests adds to the cash balance. Fewer guests lower the balance, but the down payment is never refunded.
+app.post("/api/cashier/pax/:code", requireCashier, wrap(async (req, res) => {
+  const pax = parseInt((req.body || {}).pax, 10);
+  const date = todayManila();
+  if (!Number.isInteger(pax) || pax < 1 || pax > 100) return res.status(400).json({ error: "Enter the number of guests." });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["night:" + date]);
+    const cfg = await getConfig(client);
+    const b = (await client.query("SELECT pax, price, deposit, status, name FROM bookings WHERE code = $1 AND date = $2 FOR UPDATE", [req.params.code, date])).rows[0];
+    const fail = (st, msg, extra) => client.query("ROLLBACK").then(() => res.status(st).json({ error: msg, ...extra }));
+    if (!b) return fail(404, "Booking not found for tonight.");
+    if (!["confirmed", "arrived"].includes(b.status)) return fail(409, "Only confirmed or arrived bookings can be changed here.");
+    if (b.status === "arrived" && pax < b.pax) return fail(409, "Guests already paid. You can only add guests now.");
+    if (pax === b.pax) return fail(400, "That is the same number of guests.");
+    if (pax > b.pax) {
+      const used = (await client.query(`SELECT COALESCE(SUM(pax),0)::int AS h FROM bookings WHERE date = $1 AND status <> 'cancelled'`, [date])).rows[0].h;
+      const left = cfg.capacity - used;
+      if (pax - b.pax > left && !(req.body || {}).force) return fail(409, `Only ${Math.max(0, left)} seat(s) left tonight.`, { full: true });
+    }
+    const total = pax * b.price, balance = Math.max(0, total - b.deposit);
+    await client.query("UPDATE bookings SET pax = $1, total = $2, balance = $3, note = TRIM(note || $4), updated_at = now() WHERE code = $5",
+      [pax, total, balance, ` (guests ${b.pax}→${pax})`, req.params.code]);
+    await client.query("COMMIT");
+    backoffice.alert("guests", `Guests changed at the door: ${req.params.code} ${b.name} ${b.pax} → ${pax}. New total ₱${total}.`, req.params.code, date);
+    res.json({ ok: true, pax, total, balance, added: pax > b.pax && b.status === "arrived" ? (pax - b.pax) * b.price : 0 });
+  } catch (e) { await client.query("ROLLBACK").catch(() => {}); throw e; } finally { client.release(); }
+}));
+
 app.post("/api/cashier/walkin", requireCashier, wrap(async (req, res) => {
   const b = req.body || {};
   const name = String(b.name || "Walk-in").trim().slice(0, 80) || "Walk-in";

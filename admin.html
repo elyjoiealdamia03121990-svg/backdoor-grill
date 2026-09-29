@@ -54,6 +54,7 @@ h3{font-size:16px}
   <div class="wrap wide topnav">
     <div><div class="eyebrow">Back office</div><h1 style="font-size:clamp(28px,6vw,40px)">Backdoor Grill</h1></div>
     <div class="row" style="gap:8px">
+      <a class="btn ghost sm" id="cashLink" href="/cashier" target="_blank" rel="noopener" style="color:#F4F1E8;border-color:#4a524d;text-decoration:none" hidden>Cashier window ↗</a>
       <button class="btn ghost sm bell" id="bellBtn" style="color:#F4F1E8;border-color:#4a524d" hidden aria-label="Alerts">Alerts <span class="badge" id="bellCount" hidden>0</span></button>
       <button class="btn ghost sm" id="logoutBtn" style="color:#F4F1E8;border-color:#4a524d" hidden>Log out</button>
     </div>
@@ -337,9 +338,9 @@ h3{font-size:16px}
   const flash = (id, ok, text) => { const m=$(id); m.className="msg "+(ok?"ok":"err"); m.textContent=text; if(ok) setTimeout(()=>{ if(m.textContent===text) m.textContent=""; }, 4000); };
   const fail = id => e => { if (e.message!=="login") flash(id, false, e.message); };
 
-  function showLogin(){ $("loginBox").hidden=false; $("dash").hidden=true; $("logoutBtn").hidden=true; $("bellBtn").hidden=true; }
+  function showLogin(){ $("loginBox").hidden=false; $("dash").hidden=true; $("logoutBtn").hidden=true; $("bellBtn").hidden=true; $("cashLink").hidden=true; }
   async function showDash(){
-    $("loginBox").hidden=true; $("dash").hidden=false; $("logoutBtn").hidden=false; $("bellBtn").hidden=false;
+    $("loginBox").hidden=true; $("dash").hidden=false; $("logoutBtn").hidden=false; $("bellBtn").hidden=false; $("cashLink").hidden=false;
     loadAlerts(true);
     META = await api("/api/admin/meta"); TODAY = META.today;
     initForms(); tab(location.hash.slice(1) || "bookings");
@@ -667,7 +668,7 @@ h3{font-size:16px}
 
   // ================= ALERTS =================
   let lastAlertId = null;
-  const TAG = {new:"New booking", moved:"Date changed"};
+  const TAG = {new:"New booking", moved:"Date changed", guests:"Guests changed"};
   async function loadAlerts(first){
     let d; try { d = await api("/api/admin/alerts"); } catch(e){ return; }
     $("bellCount").textContent = d.unseen; $("bellCount").hidden = !d.unseen;
