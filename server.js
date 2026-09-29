@@ -385,20 +385,24 @@ app.post("/api/cashier/checkin/:code", requireCashier, wrap(async (req, res) => 
   const action = (req.body || {}).action;
   if (!["arrived", "noshow", "confirmed"].includes(action)) return res.status(400).json({ error: "Invalid action." });
   if (await nightClosed(todayManila())) return res.status(409).json({ error: CLOSED_MSG });
-  let tendered = null, change = null;
+  let tendered = null, change = null, bill = 0;
   if (action === "arrived") {
+    // One payment covers the remaining balance plus any items already on their bill
     const bal = (await pool.query("SELECT balance FROM bookings WHERE code = $1", [req.params.code])).rows[0];
+    bill = (await pool.query("SELECT COALESCE(SUM(amount),0)::float AS d FROM other_income WHERE date = $1 AND code = $2 AND NOT paid", [todayManila(), req.params.code])).rows[0].d;
+    const due = Number(bal ? bal.balance : 0) + bill;
     const t = Number((req.body || {}).tendered);
     if (bal && Number.isFinite(t) && t > 0) {
-      if (t < Number(bal.balance)) return res.status(400).json({ error: "Cash received is less than the balance." });
-      tendered = t; change = t - Number(bal.balance);
+      if (t < due) return res.status(400).json({ error: "Cash received is less than the amount due." });
+      tendered = t; change = t - due;
     }
   }
   const r = await pool.query(`UPDATE bookings SET status = $1, arrived_on = CASE WHEN $1 = 'arrived' THEN $3 ELSE NULL END,
     tendered = $4, change_given = $5, updated_at = now()
     WHERE code = $2 AND date = $3 AND status IN ('confirmed','arrived','noshow') RETURNING code`, [action, req.params.code, todayManila(), tendered, change]);
   if (!r.rowCount) return res.status(409).json({ error: "This booking is not confirmed yet. Ask the manager to verify the GCash down payment." });
-  res.json({ ok: true });
+  if (action === "arrived" && bill) await pool.query("UPDATE other_income SET paid = true, paid_at = now() WHERE date = $1 AND code = $2 AND NOT paid", [todayManila(), req.params.code]);
+  res.json({ ok: true, billPaid: bill });
 }));
 
 // Change the number of guests on tonight's booking (extra guests arrive, or fewer come).

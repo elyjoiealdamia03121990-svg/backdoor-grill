@@ -112,7 +112,7 @@
     </section>
     <div class="cash-top">
       <div class="tile"><div class="k">Guests expected</div><div class="v" id="sExpected">0</div></div>
-      <div class="tile"><div class="k">Guests arrived</div><div class="v" id="sArrived">0</div></div>
+      <div class="tile"><div class="k">Guests paid</div><div class="v" id="sArrived">0</div></div>
       <div class="tile"><div class="k">Still to collect</div><div class="v" id="sPending">₱0</div></div>
       <div class="tile drawer"><div class="k">Cash in drawer (tonight)</div><div class="v" id="sDrawer">₱0</div></div>
     </div>
@@ -256,7 +256,7 @@
       const paidSum = data.extras.filter(x => x.code === b.code && x.paid).reduce((s,x)=>s+x.amount,0);
       const openBill = data.extras.filter(x => x.code === b.code && !x.paid).reduce((s,x)=>s+x.amount,0);
       if (paidSum) add("Items paid " + peso(paidSum));
-      if (openBill) { const s=document.createElement("span"); s.className="hint"; s.style.fontWeight="700"; s.textContent="Unpaid bill " + peso(openBill); sub.appendChild(s); }
+      if (openBill) { const s=document.createElement("span"); s.className="hint"; s.style.fontWeight="700"; s.textContent="Items on bill " + peso(openBill) + (b.status==="confirmed" ? " (added to Pay)" : " (not paid yet)"); sub.appendChild(s); }
       const act = document.createElement("div"); act.className="act";
       const btn = (label, cls, fn) => { const x=document.createElement("button"); x.type="button"; x.className="btn "+cls; x.textContent=label; x.onclick=fn; act.appendChild(x); return x; };
       if (disc && disc.code === b.code) {
@@ -281,14 +281,20 @@
         });
         btn("Cancel", "ghost", () => { paxEdit = null; render(); });
       } else if (b.status === "confirmed") {
+        // ONE payment: remaining balance + any items on their bill
+        const due = b.balance + openBill;
         if (confirmCode === b.code) {
           let tender = null;
-          const ok = btn("Confirm payment", "big ok", () => checkin(b.code, "arrived", tender));
+          const brk = document.createElement("div"); brk.className = "note"; brk.style.width = "100%";
+          brk.textContent = openBill ? "Balance " + peso(b.balance) + " + items " + peso(openBill) + " = " + peso(due) : "";
+          if (openBill) act.appendChild(brk);
+          const ok = btn("Confirm payment", "big ok", () => checkin(b.code, "arrived", tender, due));
           ok.disabled = true;
-          act.insertBefore(tenderBox(b.balance, t => { tender = t; ok.disabled = !(t > 0); ok.textContent = t > 0 ? (t > b.balance ? "Confirm · give " + peso(t - b.balance) + " change" : "Confirm payment") : "Confirm payment"; }), ok);
+          act.insertBefore(tenderBox(due, t => { tender = t; ok.disabled = !(t > 0); ok.textContent = t > due ? "Confirm · give " + peso(t - due) + " change" : "Confirm payment"; }), ok);
           btn("Back", "ghost", () => { confirmCode=null; render(); });
         } else {
-          btn("Collect " + peso(b.balance) + " cash", "big", () => { confirmCode=b.code; render(); });
+          btn("Pay " + peso(due), "big", () => { confirmCode=b.code; render(); });
+          if (!data.closed) btn("+ Add items", "ghost sm", () => openSheet(b));
           btn("Change guests", "ghost sm", () => { confirmCode=null; paxEdit={code:b.code, pax:b.pax, force:false}; render(); });
           btn("Senior / PWD / kids", "ghost sm", () => { confirmCode=null; const d=b.discounts||{}; disc={code:b.code, seniors:(d.seniors||[]).map(x=>({...x})), pwds:(d.pwds||[]).map(x=>({...x})), kids:d.kids||0, free:d.free||0}; render(); });
           btn("No-show", "ghost sm", () => checkin(b.code, "noshow"));
@@ -299,19 +305,20 @@
         if (b.status === "arrived") btn("+ Add guests", "ghost sm", () => { paxEdit={code:b.code, pax:b.pax+1, force:false}; render(); });
         btn("Undo", "ghost sm", () => checkin(b.code, "confirmed"));
       }
-      if (billPay === b.code) {
+      if (b.status === "arrived" && billPay === b.code) {
         let tender = null;
-        const ok = btn("Confirm bill payment", "big ok", async () => {
+        const ok = btn("Confirm payment", "big ok", async () => {
           ok.disabled = true;
           try { const j = await post("/api/cashier/bill/"+encodeURIComponent(b.code)+"/pay", {tendered: tender}); billPay = null; alertMsg("Bill paid " + peso(j.paid) + (j.change ? ". Change: " + peso(j.change) : "") + ".", true); load(); }
           catch(e){ if(e.message!=="login"){ ok.disabled=false; alertMsg(e.message); } }
         });
         ok.disabled = true;
-        act.insertBefore(tenderBox(openBill, t => { tender = t; ok.disabled = !(t > 0); ok.textContent = t > openBill ? "Confirm · give " + peso(t - openBill) + " change" : "Confirm bill payment"; }), ok);
+        act.insertBefore(tenderBox(openBill, t => { tender = t; ok.disabled = !(t > 0); ok.textContent = t > openBill ? "Confirm · give " + peso(t - openBill) + " change" : "Confirm payment"; }), ok);
         btn("Back", "ghost", () => { billPay = null; render(); });
-      } else if (["confirmed","arrived"].includes(b.status) && !data.closed && !(paxEdit && paxEdit.code===b.code) && !(disc && disc.code===b.code) && confirmCode!==b.code) {
+      } else if (b.status === "arrived" && !data.closed && !(paxEdit && paxEdit.code===b.code) && billPay!==b.code) {
+        // Already paid; later items go on a new bill with its own single Pay button
+        if (openBill) act.prepend(Object.assign(document.createElement("button"), {type:"button", className:"btn big", textContent:"Pay " + peso(openBill), onclick:() => { billPay = b.code; render(); }}));
         btn("+ Add items", "ghost sm", () => openSheet(b));
-        if (openBill) btn("Pay bill " + peso(openBill), "sm", () => { billPay = b.code; confirmCode = null; render(); });
       }
       c.append(nm, pill, sub, act); list.appendChild(c);
     });
@@ -330,9 +337,9 @@
     walkTotal();
   }
 
-  async function checkin(code, action, tendered){
+  async function checkin(code, action, tendered, due){
     confirmCode = null;
-    try { await post("/api/cashier/checkin/"+encodeURIComponent(code), {action, tendered}); if (tendered) alertMsg("Paid. Change: " + peso(tendered - (data.bookings.find(b=>b.code===code)||{balance:tendered}).balance), true); } catch(e){ if(e.message!=="login") alertMsg(e.message); }
+    try { await post("/api/cashier/checkin/"+encodeURIComponent(code), {action, tendered}); if (tendered) alertMsg("Paid " + peso(due) + ". Change: " + peso(tendered - due), true); } catch(e){ if(e.message!=="login") alertMsg(e.message); }
     load();
   }
   function alertMsg(t, ok){ const e=document.createElement("div"); e.className="banner"; if(ok){ e.style.background="var(--good-bg)"; e.style.color="var(--good)"; } e.textContent=t; $("list").prepend(e); setTimeout(()=>e.remove(), 5000); }
@@ -414,10 +421,12 @@
     const refresh = () => {
       const p = discPreview(b); preview.textContent = "";
       const l = (k,v,bold)=>{ const d=document.createElement("div"); d.className="line"; const a=document.createElement("span"); a.textContent=k; const c=document.createElement(bold?"b":"span"); c.textContent=v; d.append(a,c); preview.appendChild(d); };
-      l("Regular ("+Math.max(p.adults,0)+")", peso(Math.max(p.adults,0)*b.price));
-      if (disc.seniors.length+disc.pwds.length) l("Senior/PWD ("+(disc.seniors.length+disc.pwds.length)+" × "+peso(p.scUnit)+")", peso((disc.seniors.length+disc.pwds.length)*p.scUnit));
-      if (disc.kids) l("Kids ("+disc.kids+" × "+peso(data.kidPrice)+")", peso(disc.kids*data.kidPrice));
-      if (disc.free) l("Free ("+disc.free+")", peso(0));
+      const scN = disc.seniors.length+disc.pwds.length;
+      l("Regular price ("+b.pax+" × "+peso(b.price)+")", peso(b.pax*b.price));
+      if (scN) l("Less Senior/PWD 20% ("+scN+")", "−"+peso(Math.round(scN*(b.price-p.scUnit))));
+      if (disc.kids) l("Less kids price ("+disc.kids+" × "+peso(b.price-data.kidPrice)+")", "−"+peso(disc.kids*(b.price-data.kidPrice)));
+      if (disc.free) l("Less free kids ("+disc.free+")", "−"+peso(disc.free*b.price));
+      if (p.less) l("Total discount", "−"+peso(p.less), true);
       l("New total", peso(p.total), true); l("Less down payment", "−"+peso(b.deposit)); l("Balance to collect", peso(p.balance), true);
       if (p.adults < 0) { const w=document.createElement("div"); w.className="change bad"; w.textContent="More than "+b.pax+" guests. Change guests first."; preview.appendChild(w); }
       save.disabled = p.adults < 0;
