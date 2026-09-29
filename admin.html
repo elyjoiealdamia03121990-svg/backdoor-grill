@@ -39,13 +39,24 @@ table.t input,table.t select{padding:6px 8px;font-size:14px;min-width:70px}
 .formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
 .linkbox{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:14px;margin-top:12px}
 h3{font-size:16px}
+.badge{display:inline-block;min-width:20px;padding:1px 6px;border-radius:99px;background:#E4553A;color:#fff;font:700 12px var(--mono);margin-left:4px}
+.bell.ring{animation:ring .6s ease 2}
+@keyframes ring{0%,100%{transform:rotate(0)}25%{transform:rotate(-8deg)}75%{transform:rotate(8deg)}}
+@media (prefers-reduced-motion:reduce){.bell.ring{animation:none}}
+.al{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--bg);font-size:14px}
+.al.unseen{border-color:var(--accent);background:var(--surface)}
+.al .when{color:var(--muted);font-size:12px;white-space:nowrap}
+.newbanner{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:50;background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);font-size:14px;max-width:calc(100% - 32px);cursor:pointer}
 </style>
 </head>
 <body>
 <header class="hero">
   <div class="wrap wide topnav">
     <div><div class="eyebrow">Back office</div><h1 style="font-size:clamp(28px,6vw,40px)">Backdoor Grill</h1></div>
-    <button class="btn ghost sm" id="logoutBtn" style="color:#F4F1E8;border-color:#4a524d" hidden>Log out</button>
+    <div class="row" style="gap:8px">
+      <button class="btn ghost sm bell" id="bellBtn" style="color:#F4F1E8;border-color:#4a524d" hidden aria-label="Alerts">Alerts <span class="badge" id="bellCount" hidden>0</span></button>
+      <button class="btn ghost sm" id="logoutBtn" style="color:#F4F1E8;border-color:#4a524d" hidden>Log out</button>
+    </div>
   </div>
 </header>
 
@@ -61,6 +72,11 @@ h3{font-size:16px}
   </section>
 
   <div id="dash" hidden>
+    <section class="block alerts" id="alertBox" hidden style="margin-top:16px">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px"><h2>Alerts</h2>
+        <div class="row" style="gap:6px"><button class="btn ghost sm" id="alertSeen">Mark all as read</button><button class="btn ghost sm" id="alertClose">Close</button></div></div>
+      <div class="list" id="alertList"></div>
+    </section>
     <nav class="nav" id="nav" role="tablist">
       <button data-t="bookings" aria-selected="true">Bookings</button>
       <button data-t="prep" aria-selected="false">Prep &amp; shopping list</button>
@@ -321,9 +337,10 @@ h3{font-size:16px}
   const flash = (id, ok, text) => { const m=$(id); m.className="msg "+(ok?"ok":"err"); m.textContent=text; if(ok) setTimeout(()=>{ if(m.textContent===text) m.textContent=""; }, 4000); };
   const fail = id => e => { if (e.message!=="login") flash(id, false, e.message); };
 
-  function showLogin(){ $("loginBox").hidden=false; $("dash").hidden=true; $("logoutBtn").hidden=true; }
+  function showLogin(){ $("loginBox").hidden=false; $("dash").hidden=true; $("logoutBtn").hidden=true; $("bellBtn").hidden=true; }
   async function showDash(){
-    $("loginBox").hidden=true; $("dash").hidden=false; $("logoutBtn").hidden=false;
+    $("loginBox").hidden=true; $("dash").hidden=false; $("logoutBtn").hidden=false; $("bellBtn").hidden=false;
+    loadAlerts(true);
     META = await api("/api/admin/meta"); TODAY = META.today;
     initForms(); tab(location.hash.slice(1) || "bookings");
   }
@@ -647,6 +664,36 @@ h3{font-size:16px}
       fillSettings(j.config); flash("sMsg",true,"Saved.");
     }catch(e){ fail("sMsg")(e); }
   };
+
+  // ================= ALERTS =================
+  let lastAlertId = null;
+  const TAG = {new:"New booking", moved:"Date changed"};
+  async function loadAlerts(first){
+    let d; try { d = await api("/api/admin/alerts"); } catch(e){ return; }
+    $("bellCount").textContent = d.unseen; $("bellCount").hidden = !d.unseen;
+    document.title = (d.unseen ? "("+d.unseen+") " : "") + "Backdoor Grill Back Office";
+    const top = d.rows[0] ? d.rows[0].id : 0;
+    if (!first && lastAlertId !== null && top > lastAlertId) {
+      const fresh = d.rows.filter(r => r.id > lastAlertId);
+      $("bellBtn").classList.remove("ring"); void $("bellBtn").offsetWidth; $("bellBtn").classList.add("ring");
+      const nb = el("div",{class:"newbanner",role:"status",text:(fresh.length>1 ? fresh.length+" new alerts. " : "")+fresh[0].message,onclick:()=>{ nb.remove(); openAlerts(); }});
+      document.body.appendChild(nb); setTimeout(()=>nb.remove(), 9000);
+      if (!document.querySelector('[data-p="bookings"]').hidden) LOADERS.bookings();
+    }
+    lastAlertId = top;
+    const list = $("alertList"); list.textContent = "";
+    if (!d.rows.length) list.appendChild(el("div",{class:"empty",text:"No alerts yet. New bookings and date changes will show here."}));
+    d.rows.forEach(r => list.appendChild(el("div",{class:"al"+(r.seen?"":" unseen")},
+      el("span",{class:"pill "+(r.type==="moved"?"st-arrived":"st-pending"),text:TAG[r.type]||r.type}),
+      el("span",{text:r.message}),
+      el("span",{class:"row",style:"gap:6px"}, el("span",{class:"when",text:new Date(r.createdAt).toLocaleString("en-PH",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}),
+        r.date ? el("button",{class:"btn ghost sm",text:"Open",onclick:()=>{ bDate=r.date; $("alertBox").hidden=true; tab("bookings"); }}) : null))));
+  }
+  function openAlerts(){ $("alertBox").hidden=false; $("alertBox").scrollIntoView({behavior:"smooth"}); }
+  $("bellBtn").onclick = () => { if ($("alertBox").hidden) openAlerts(); else $("alertBox").hidden = true; };
+  $("alertClose").onclick = () => $("alertBox").hidden = true;
+  $("alertSeen").onclick = async () => { await send("POST","/api/admin/alerts/seen").catch(()=>{}); loadAlerts(true); };
+  setInterval(()=>{ if(!$("dash").hidden) loadAlerts(false); }, 30000);
 
   fetch("/api/admin/me").then(r=>r.json()).then(j=>{ if(j.loggedIn) showDash(); else showLogin(); }).catch(showLogin);
   setInterval(()=>{ if(!$("dash").hidden && !document.querySelector('[data-p="bookings"]').hidden) LOADERS.bookings(); }, 60000);

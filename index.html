@@ -76,7 +76,7 @@
         <label class="f" style="margin-bottom:12px">GCash reference no.<input id="fRef" inputmode="numeric" placeholder="13-digit ref no." class="mono" maxlength="30"></label>
         <ul class="terms">
           <li>The down payment is non-refundable. If you cannot make it, we keep it to cover your reserved seats.</li>
-          <li>You may move your booking to another night <b id="movesTxt">once</b> if you message us before the cut-off and seats are available.</li>
+          <li>You can change your date <b id="movesTxt">once</b> yourself under “Check my booking”, before the cut-off of your booked night, if seats are available.</li>
           <li>Arrive by 6:00 PM. Last call for the grill is 8:15 PM; we close at 8:30 PM.</li>
           <li>Excessive leftovers are charged.</li>
         </ul>
@@ -103,6 +103,16 @@
       <p class="sub">Enter the code you received when you booked.</p>
       <div class="row"><input id="chkCode" class="mono" placeholder="SG-XXXX" style="max-width:220px;text-transform:uppercase"><button class="btn" id="chkBtn">Check</button></div>
       <div id="chkOut" class="msg" role="status"></div>
+      <div id="mvBox" hidden style="margin-top:14px;border-top:1px dashed var(--line);padding-top:14px">
+        <h2 style="font-size:20px">Change my date</h2>
+        <p class="sub" id="mvSub">Pick a new night. Your down payment moves with you.</p>
+        <div class="fields">
+          <label class="f">Mobile number you booked with<input id="mvPhone" inputmode="tel" placeholder="09XX XXX XXXX"></label>
+          <label class="f">New night<select id="mvDate"></select></label>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn" id="mvBtn">Change date</button></div>
+        <div class="msg" id="mvMsg" role="status"></div>
+      </div>
     </section>
   </main>
 </div>
@@ -187,7 +197,35 @@
       if(!r.ok){ out.className="msg err"; out.textContent=j.error; return; }
       const p=document.createElement("span"); p.className="pill st-"+j.status; p.textContent=STL[j.status]||j.status;
       out.textContent=niceDate(j.date)+" · "+j.pax+" guests · Total "+peso(j.total)+" · Balance "+peso(j.balance)+" cash  "; out.appendChild(p);
+      showMove(j);
     }catch(e){ out.className="msg err"; out.textContent="No connection."; }
+  };
+  let mvCode=null;
+  function showMove(j){
+    const box=$("mvBox"); mvCode=j.code; $("mvMsg").textContent="";
+    if(!j.canMove){
+      box.hidden=false; $("mvSub").textContent = j.movesLeft<=0 ? "This booking has already used its date change. Please message us if you need help." :
+        (["pending","confirmed"].includes(j.status) ? "The cut-off for this night ("+j.cutoffLabel+") has passed, so the date can no longer be changed." : "This booking can no longer be changed online.");
+      $("mvPhone").parentElement.parentElement.hidden=true; $("mvBtn").hidden=true; return;
+    }
+    $("mvPhone").parentElement.parentElement.hidden=false; $("mvBtn").hidden=false;
+    $("mvSub").textContent="Pick a new night with enough seats. Your down payment moves with you. You can change the date "+(j.movesLeft===1?"once":j.movesLeft+" more times")+", until "+j.cutoffLabel+" of your booked night.";
+    const sel=$("mvDate"); sel.textContent="";
+    const opts=days.filter(d=>d.status==="open" && d.left>=j.pax && d.date!==j.date);
+    if(!opts.length){ sel.appendChild(new Option("No other nights with enough seats","")); }
+    opts.forEach(d=>sel.appendChild(new Option(niceDate(d.date)+" · "+d.left+" seats left", d.date)));
+    box.hidden=false;
+  }
+  $("mvBtn").onclick=async()=>{
+    const m=$("mvMsg"); m.className="msg"; m.textContent="…";
+    if(!$("mvDate").value){ m.className="msg err"; m.textContent="Pick a new night."; return; }
+    try{
+      const r=await fetch("/api/bookings/"+encodeURIComponent(mvCode)+"/move",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({date:$("mvDate").value,phone:$("mvPhone").value})});
+      const j=await r.json();
+      if(!r.ok){ m.className="msg err"; m.textContent=j.error; return; }
+      m.className="msg ok"; m.textContent="Done. Your booking is now on "+niceDate(j.date)+". Same booking code.";
+      await load(); $("chkBtn").click();
+    }catch(e){ m.className="msg err"; m.textContent="No connection."; }
   };
   $("chkCode").addEventListener("keydown",e=>{ if(e.key==="Enter") $("chkBtn").click(); });
 

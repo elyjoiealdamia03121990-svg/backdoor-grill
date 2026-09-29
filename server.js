@@ -68,6 +68,10 @@ function todayManila() { return new Date(Date.now() + 8 * 3600e3).toISOString().
 function addDays(s, n) { const [y, m, d] = s.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); }
 function dowOf(s) { const [y, m, d] = s.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); }
 function cutoffInstant(s, cfg) { const [y, m, d] = s.split("-").map(Number); return Date.UTC(y, m - 1, d - (cfg.cutoffDaysBefore || 0), (cfg.cutoffHour ?? 12) - 8); }
+function cutoffText(s, cfg) {
+  const h = cfg.cutoffHour ?? 12, lbl = h === 12 ? "12:00 NN" : h === 0 ? "12:00 MN" : (h % 12) + ":00 " + (h < 12 ? "AM" : "PM");
+  return lbl + (cfg.cutoffDaysBefore ? " the day before" : " on the day itself");
+}
 function isValidDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(s + "T00:00:00Z").toISOString().slice(0, 10) === s; }
 
 function dayClosedReason(date, cfg) {
@@ -191,15 +195,50 @@ app.post("/api/bookings", limit(8, 15 * 60e3), wrap(async (req, res) => {
       `INSERT INTO bookings(code, date, pax, price, total, name, phone, note, gcash_ref, deposit, balance) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [code, date, pax, cfg.price, total, name, phone, note, gcashRef, deposit, balance]);
     await client.query("COMMIT");
+    backoffice.alert("new", `New booking ${code}: ${name}, ${pax} guest(s) on ${date}. Verify GCash ref ${gcashRef} (₱${deposit}).`, code, date);
     res.json({ code, date, pax, total, deposit, balance, timeLabel: cfg.timeLabel, status: "pending" });
   } catch (e) { await client.query("ROLLBACK").catch(() => {}); throw e; }
   finally { client.release(); }
 }));
 
 app.get("/api/bookings/:code", limit(30, 15 * 60e3), wrap(async (req, res) => {
-  const r = await pool.query("SELECT code, date, pax, total, deposit, balance, status FROM bookings WHERE code = $1", [String(req.params.code).toUpperCase()]);
+  const r = await pool.query("SELECT code, date, pax, total, deposit, balance, status, moves FROM bookings WHERE code = $1", [String(req.params.code).toUpperCase()]);
   if (!r.rowCount) return res.status(404).json({ error: "Booking code not found." });
-  res.json(r.rows[0]);
+  const b = r.rows[0], cfg = await getConfig();
+  const movesLeft = Math.max(0, Number(cfg.maxMoves ?? 1) - b.moves);
+  const canMove = ["pending", "confirmed"].includes(b.status) && movesLeft > 0 && Date.now() < cutoffInstant(b.date, cfg);
+  res.json({ ...b, movesLeft, canMove, cutoffLabel: cutoffText(b.date, cfg) });
+}));
+
+// Customer changes their own booking date: needs the booking code + the mobile number used.
+const digits = s => String(s || "").replace(/\D/g, "").slice(-10);
+app.post("/api/bookings/:code/move", limit(10, 15 * 60e3), wrap(async (req, res) => {
+  const code = String(req.params.code).toUpperCase();
+  const date = String((req.body || {}).date || "");
+  const phone = digits((req.body || {}).phone);
+  if (!isValidDate(date)) return res.status(400).json({ error: "Choose a new night." });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["night:" + date]);
+    const cfg = await getConfig(client);
+    const b = (await client.query("SELECT pax, date, status, moves, phone FROM bookings WHERE code = $1 FOR UPDATE", [code])).rows[0];
+    const fail = (st, msg) => client.query("ROLLBACK").then(() => res.status(st).json({ error: msg }));
+    if (!b || phone.length < 10 || digits(b.phone) !== phone) return fail(404, "Booking code and mobile number do not match.");
+    if (!["pending", "confirmed"].includes(b.status)) return fail(409, "This booking can no longer be changed online. Please message us.");
+    if (Date.now() >= cutoffInstant(b.date, cfg)) return fail(409, "It is past the cut-off for your booked night, so the date can no longer be changed.");
+    const maxMoves = Number(cfg.maxMoves ?? 1);
+    if (b.moves >= maxMoves) return fail(409, maxMoves ? `You already changed this booking ${b.moves} time(s). The limit is ${maxMoves}.` : "Date changes are not allowed.");
+    if (date === b.date) return fail(400, "That is already your booked night.");
+    const reason = dayClosedReason(date, cfg);
+    if (reason) return fail(409, reason);
+    const used = (await client.query(`SELECT COALESCE(SUM(pax),0)::int AS h FROM bookings WHERE date = $1 AND status <> 'cancelled'`, [date])).rows[0].h;
+    if (b.pax > cfg.capacity - used) return fail(409, `Only ${Math.max(0, cfg.capacity - used)} seat(s) left on that night. Please pick another.`);
+    await client.query("UPDATE bookings SET date = $1, moves = moves + 1, note = TRIM(note || ' (moved by guest from ' || $2 || ')'), updated_at = now() WHERE code = $3", [date, b.date, code]);
+    await client.query("COMMIT");
+    backoffice.alert("moved", `Date changed by guest: ${code} (${b.pax} guest(s)) moved from ${b.date} to ${date}.`, code, date);
+    res.json({ ok: true, date });
+  } catch (e) { await client.query("ROLLBACK").catch(() => {}); throw e; } finally { client.release(); }
 }));
 
 // ---- Admin API ----

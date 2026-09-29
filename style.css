@@ -1,3 +1,4 @@
+[hidden]{display:none!important}
 /* Layout: one column, two modes (customer booking / back office) switched by a top segmented control; grill-grate texture only in the header band */
 :root{
   --bg:#EEF0EA; --surface:#FAFBF7; --ink:#1E2320; --muted:#5E6660; --line:#D5D9D0;

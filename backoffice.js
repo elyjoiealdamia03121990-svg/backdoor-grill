@@ -87,6 +87,9 @@ module.exports = function makeBackoffice(pool, { todayManila, addDays, isValidDa
         id SERIAL PRIMARY KEY, date TEXT NOT NULL, type TEXT NOT NULL, amount NUMERIC NOT NULL,
         note TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now());
       ALTER TABLE bookings ADD COLUMN IF NOT EXISTS arrived_on TEXT;
+      CREATE TABLE IF NOT EXISTS alerts (
+        id SERIAL PRIMARY KEY, type TEXT NOT NULL, message TEXT NOT NULL, code TEXT, date TEXT,
+        seen BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
     `);
     const c = await pool.query("SELECT COUNT(*)::int AS n FROM items");
     if (c.rows[0].n === 0) {
@@ -159,8 +162,23 @@ module.exports = function makeBackoffice(pool, { todayManila, addDays, isValidDa
   }
   const netOf = x => x.downPayments + x.balances + x.otherIncome + x.capitalIn - x.purchases - x.expenses - x.ownerDraw;
 
+  // Alerts shown in the back office (new bookings, guests changing dates, ...)
+  async function alert(type, message, code = null, date = null) {
+    try { await pool.query("INSERT INTO alerts(type, message, code, date) VALUES ($1,$2,$3,$4)", [type, message, code, date]); }
+    catch (e) { console.error("alert failed", e.message); }
+  }
+
   function routes(app, requireAdmin, wrap) {
     const A = (method, path, fn) => app[method]("/api/admin/" + path, requireAdmin, wrap(fn));
+
+    A("get", "alerts", async (req, res) => {
+      const r = await pool.query(`SELECT id, type, message, code, date, seen, created_at AS "createdAt" FROM alerts ORDER BY id DESC LIMIT 50`);
+      const u = await pool.query("SELECT COUNT(*)::int AS n FROM alerts WHERE NOT seen");
+      res.json({ unseen: u.rows[0].n, rows: r.rows });
+    });
+    A("post", "alerts/seen", async (req, res) => { await pool.query("UPDATE alerts SET seen = true WHERE NOT seen"); res.json({ ok: true }); });
+    // Keep the table small
+    pool.query("DELETE FROM alerts WHERE created_at < now() - interval '90 days'").catch(() => {});
 
     A("get", "meta", async (req, res) => res.json({ categories: CATEGORIES, expenseCategories: EXPENSE_CATS, today: todayManila() }));
 
@@ -349,5 +367,5 @@ module.exports = function makeBackoffice(pool, { todayManila, addDays, isValidDa
     });
   }
 
-  return { migrate, routes };
+  return { migrate, routes, alert };
 };
