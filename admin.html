@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ceb">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Backdoor Grill Back Office</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="hero">
+  <div class="wrap topnav">
+    <div><div class="eyebrow">Back office</div><h1 style="font-size:clamp(28px,6vw,40px)">Backdoor Grill</h1></div>
+    <button class="btn ghost sm" id="logoutBtn" style="color:#F4F1E8;border-color:#4a524d" hidden>Logout</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="block login" id="loginBox" hidden>
+    <h2>Admin login</h2>
+    <p class="sub">Para ra ni sa owner ug staff.</p>
+    <form id="loginForm" class="row">
+      <input id="pw" type="password" autocomplete="current-password" placeholder="Password">
+      <button class="btn" type="submit">Login</button>
+    </form>
+    <div class="msg" id="loginMsg" role="status"></div>
+  </section>
+
+  <div id="dash" hidden>
+    <section class="block" style="margin-top:18px">
+      <div class="row" style="justify-content:space-between;margin-bottom:12px">
+        <div><h2>Gabii</h2><p class="sub" style="margin:0" id="aDateLabel">—</p></div>
+        <div class="row">
+          <input type="date" id="aDate" style="width:auto">
+          <button class="btn ghost sm" id="refreshBtn">Refresh</button>
+        </div>
+      </div>
+      <div class="tiles">
+        <div class="tile"><div class="k">Heads booked</div><div class="v" id="tHeads">0</div></div>
+        <div class="tile"><div class="k">Slots bakante</div><div class="v" id="tLeft">0</div></div>
+        <div class="tile"><div class="k">I-verify pa</div><div class="v" id="tPend">0</div></div>
+        <div class="tile"><div class="k">Bayad nadawat</div><div class="v" id="tRev">₱0</div></div>
+      </div>
+      <div class="meter" aria-hidden="true"><i id="tMeter" style="width:0%"></i></div>
+      <div class="filters" id="aFilters">
+        <button data-f="all" aria-pressed="true">Tanan</button>
+        <button data-f="pending" aria-pressed="false">Pending verify</button>
+        <button data-f="confirmed" aria-pressed="false">Confirmed</button>
+        <button data-f="arrived" aria-pressed="false">Niabot</button>
+        <button data-f="noshow" aria-pressed="false">No-show</button>
+        <button data-f="cancelled" aria-pressed="false">Cancelled</button>
+      </div>
+      <div class="list" id="aList"></div>
+    </section>
+
+    <section class="block">
+      <h2>Umaabot nga gabii</h2>
+      <p class="sub">Pila na ka ulo ang naka-book. I-tap para ablihan.</p>
+      <div class="list" id="nights"></div>
+    </section>
+
+    <section class="block">
+      <h2>Settings</h2>
+      <p class="sub">Presyo, slots, cut-off ug GCash nga makita sa customers.</p>
+      <div class="fields">
+        <label class="f">Presyo matag ulo (₱)<input id="sPrice" type="number" min="1"></label>
+        <label class="f">Max heads matag gabii<input id="sCap" type="number" min="1"></label>
+        <label class="f">Max heads matag booking<input id="sMaxPax" type="number" min="1"></label>
+        <label class="f">Pila ka adlaw abante makita<input id="sDays" type="number" min="1" max="60"></label>
+        <label class="f">Cut-off nga oras<select id="sCutHour"></select></label>
+        <label class="f">Cut-off nga adlaw<select id="sCutDay"><option value="0">Sa adlaw mismo</option><option value="1">Usa ka adlaw sa wala pa</option></select></label>
+        <label class="f">GCash name<input id="sGName"></label>
+        <label class="f">GCash number<input id="sGNum" class="mono"></label>
+        <label class="f">Grill time (label)<input id="sTime"></label>
+        <label class="f">Close specific dates <span class="h">YYYY-MM-DD, comma</span><input id="sClosed" placeholder="2026-12-25, 2027-01-01"></label>
+        <div class="f" style="grid-column:1/-1">Bukas nga adlaw<div class="wk" id="sOpen"></div></div>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn" id="sSave">I-save ang settings</button>
+        <a class="btn ghost" href="/api/admin/export.csv" style="text-decoration:none">Download tanan bookings (CSV)</a>
+        <span class="msg" id="sMsg" style="margin:0" role="status"></span>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const DOW = ["Dom","Lun","Mar","Miy","Huw","Biy","Sab"];
+  const MON = ["Ene","Peb","Mar","Abr","May","Hun","Hul","Ago","Set","Okt","Nob","Dis"];
+  const STL = {pending:"Pending verify",confirmed:"Confirmed",arrived:"Niabot",noshow:"No-show",cancelled:"Cancelled"};
+  const peso = n => "₱" + Number(n||0).toLocaleString("en-PH");
+  const dowOf = s => { const [y,m,d]=s.split("-").map(Number); return new Date(Date.UTC(y,m-1,d)).getUTCDay(); };
+  const niceDate = s => { const [,m,d]=s.split("-").map(Number); return DOW[dowOf(s)]+", "+MON[m-1]+" "+d; };
+  const hourLabel = h => h===12?"12:00 NN":h===0?"12:00 MN":(h%12)+":00 "+(h<12?"AM":"PM");
+  let date = null, filter = "all", data = null;
+
+  async function api(url, opts){
+    const r = await fetch(url, opts);
+    if(r.status===401){ showLogin(); throw new Error("login"); }
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error||"Naay problema.");
+    return j;
+  }
+  function showLogin(){ $("loginBox").hidden=false; $("dash").hidden=true; $("logoutBtn").hidden=true; }
+  function showDash(){ $("loginBox").hidden=true; $("dash").hidden=false; $("logoutBtn").hidden=false; }
+
+  $("loginForm").onsubmit=async e=>{
+    e.preventDefault(); const m=$("loginMsg"); m.className="msg"; m.textContent="…";
+    try{
+      const r=await fetch("/api/admin/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:$("pw").value})});
+      const j=await r.json(); if(!r.ok){ m.className="msg err"; m.textContent=j.error; return; }
+      $("pw").value=""; m.textContent=""; showDash(); load(true);
+    }catch(err){ m.className="msg err"; m.textContent="Walay koneksyon."; }
+  };
+  $("logoutBtn").onclick=async()=>{ await fetch("/api/admin/logout",{method:"POST"}); showLogin(); };
+
+  async function load(fillCfg){
+    try{
+      data = await api("/api/admin/bookings?date="+encodeURIComponent(date||""));
+      date = data.date; $("aDate").value = date;
+      if(fillCfg) fillSettings(data.config);
+      render();
+    }catch(e){ if(e.message!=="login"){ $("aList").innerHTML='<div class="empty"></div>'; $("aList").firstChild.textContent=e.message; } }
+  }
+  function render(){
+    const cfg=data.config, list=data.bookings, active=list.filter(b=>b.status!=="cancelled");
+    const heads=active.reduce((s,b)=>s+b.pax,0);
+    $("aDateLabel").textContent=niceDate(date)+" · "+cfg.timeLabel;
+    $("tHeads").textContent=heads+" / "+cfg.capacity;
+    $("tLeft").textContent=Math.max(0,cfg.capacity-heads);
+    $("tPend").textContent=list.filter(b=>b.status==="pending").length;
+    $("tRev").textContent=peso(list.filter(b=>["confirmed","arrived","noshow"].includes(b.status)).reduce((s,b)=>s+b.total,0));
+    $("tMeter").style.width=Math.min(100,heads/cfg.capacity*100)+"%";
+
+    const el=$("aList"); el.textContent="";
+    const shown=list.filter(b=>filter==="all"||b.status===filter);
+    if(!shown.length){ const e=document.createElement("div"); e.className="empty";
+      e.textContent=list.length?"Walay booking sa kini nga filter.":"Wala pay booking niini nga gabii."; el.appendChild(e); }
+    shown.forEach(b=>{
+      const c=document.createElement("div"); c.className="bk";
+      const who=document.createElement("div"); who.className="who"; who.textContent=b.name+" · "+b.pax+" pax";
+      const pill=document.createElement("span"); pill.className="pill st-"+b.status; pill.textContent=STL[b.status];
+      const meta=document.createElement("div"); meta.className="meta";
+      [["Code",b.code],["Phone",b.phone],["GCash ref",b.gcashRef],["Total",peso(b.total)]].forEach(([k,v])=>{
+        const s=document.createElement("span"); s.append(k+" "); const bb=document.createElement("b"); bb.className="mono"; bb.textContent=v; s.appendChild(bb); meta.appendChild(s); });
+      if(b.note){ const s=document.createElement("span"); s.textContent="Note: "+b.note; meta.appendChild(s); }
+      const acts=document.createElement("div"); acts.className="acts";
+      const add=(label,status,ghost)=>{ const x=document.createElement("button"); x.className="btn sm"+(ghost?" ghost":""); x.textContent=label;
+        x.onclick=async()=>{ x.disabled=true; try{ await api("/api/admin/bookings/"+b.code,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status})}); load(); }catch(e){ x.disabled=false; x.textContent="Wala na-save"; } };
+        acts.appendChild(x); };
+      if(b.status==="pending"){ add("GCash verified ✓","confirmed"); add("Cancel (sayop/walay bayad)","cancelled",true); }
+      if(b.status==="confirmed"){ add("Niabot na","arrived"); add("No-show","noshow",true); }
+      if(["arrived","noshow","cancelled"].includes(b.status)) add("Ibalik sa confirmed","confirmed",true);
+      c.append(who,pill,meta,acts); el.appendChild(c);
+    });
+
+    const n=$("nights"); n.textContent="";
+    const upcoming=data.nights.filter(x=>x.date>=data.today);
+    if(!upcoming.length){ const e=document.createElement("div"); e.className="empty"; e.textContent="Wala pay booking sa umaabot nga gabii."; n.appendChild(e); }
+    upcoming.forEach(x=>{
+      const b=document.createElement("button"); b.className="bk"; b.style.cssText="text-align:left;cursor:pointer;font:inherit;color:inherit";
+      const w=document.createElement("div"); w.className="who"; w.textContent=niceDate(x.date);
+      const v=document.createElement("span"); v.className="mono"; v.textContent=x.heads+" / "+data.config.capacity+(x.pending?" · "+x.pending+" i-verify":"");
+      b.append(w,v); b.onclick=()=>{ date=x.date; load(); window.scrollTo({top:0,behavior:"smooth"}); }; n.appendChild(b);
+    });
+  }
+  $("aDate").onchange=e=>{ if(e.target.value){ date=e.target.value; load(); } };
+  $("refreshBtn").onclick=()=>load();
+  $("aFilters").onclick=e=>{ const f=e.target.dataset&&e.target.dataset.f; if(!f) return; filter=f;
+    [...$("aFilters").children].forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.f===f))); render(); };
+
+  for(let h=6;h<=22;h++){ const o=document.createElement("option"); o.value=h; o.textContent=hourLabel(h); $("sCutHour").appendChild(o); }
+  DOW.forEach((n,i)=>{ const l=document.createElement("label"); const c=document.createElement("input"); c.type="checkbox"; c.id="sOpen"+i; const s=document.createElement("span"); s.textContent=n; l.append(c,s); $("sOpen").appendChild(l); });
+  function fillSettings(c){
+    $("sPrice").value=c.price; $("sCap").value=c.capacity; $("sMaxPax").value=c.maxPax; $("sDays").value=c.daysAhead;
+    $("sCutHour").value=c.cutoffHour; $("sCutDay").value=c.cutoffDaysBefore; $("sGName").value=c.gcashName; $("sGNum").value=c.gcashNumber;
+    $("sTime").value=c.timeLabel; $("sClosed").value=(c.closedDates||[]).join(", ");
+    DOW.forEach((_,i)=>$("sOpen"+i).checked=c.openDays.includes(i));
+  }
+  $("sSave").onclick=async()=>{
+    const m=$("sMsg"); m.className="msg"; m.textContent="…";
+    try{
+      const j=await api("/api/admin/config",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        price:$("sPrice").value,capacity:$("sCap").value,maxPax:$("sMaxPax").value,daysAhead:$("sDays").value,
+        cutoffHour:$("sCutHour").value,cutoffDaysBefore:$("sCutDay").value,gcashName:$("sGName").value,gcashNumber:$("sGNum").value,
+        timeLabel:$("sTime").value,closedDates:$("sClosed").value.split(",").map(s=>s.trim()).filter(Boolean),
+        openDays:DOW.map((_,i)=>i).filter(i=>$("sOpen"+i).checked)})});
+      fillSettings(j.config); m.className="msg ok"; m.textContent="Na-save."; load();
+    }catch(e){ if(e.message!=="login"){ m.className="msg err"; m.textContent=e.message; } }
+  };
+
+  fetch("/api/admin/me").then(r=>r.json()).then(j=>{ if(j.loggedIn){ showDash(); load(true); } else showLogin(); }).catch(showLogin);
+  setInterval(()=>{ if(!$("dash").hidden) load(); }, 60000);
+})();
+</script>
+</body>
+</html>

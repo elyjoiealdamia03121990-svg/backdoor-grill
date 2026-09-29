@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ceb">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Backdoor Grill Booking</title>
+<meta name="description" content="Unli samgyupsal buffet night. Book online, limited slots.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Unli Samgyup Night · 6–8:30 PM</div>
+    <h1>Backdoor Grill <span class="won">₱<span id="hPrice">349</span></span></h1>
+    <p>Unli samgyupsal buffet, limited slots matag gabii. Book online, bayad daan, ug grill na lang pag-abot.</p>
+    <div class="facts">
+      <span>Grill time <b id="hTime">6:00–8:30 PM</b></span>
+      <span>Cut-off <b id="hCut">12:00 NN sa adlaw mismo</b></span>
+      <span><b>Non-refundable</b></span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="seg" role="tablist">
+    <button id="tabBook" role="tab" aria-selected="true">Mag-book</button>
+    <button id="tabCheck" role="tab" aria-selected="false">I-check akong booking</button>
+  </div>
+
+  <div id="loadErr" class="banner" hidden>Dili ma-load ang slots karon. I-refresh ang page.</div>
+
+  <main id="viewBook">
+    <div id="bookForm">
+      <section class="block">
+        <div class="steplab">1 · Pili og gabii</div>
+        <h2>Kanus-a ka mo-samgyup?</h2>
+        <p class="sub">Makita diri pila pa ka ulo ang bakante matag gabii.</p>
+        <div class="days" id="days"><div class="empty" style="grid-column:1/-1">Nag-load sa slots…</div></div>
+      </section>
+
+      <section class="block">
+        <div class="steplab">2 · Detalye</div>
+        <h2>Pila mo ka buok?</h2>
+        <div class="row" style="margin-bottom:14px">
+          <div class="stepper"><button type="button" id="paxMinus" aria-label="Kuhaan">−</button><output id="pax">2</output><button type="button" id="paxPlus" aria-label="Dugangan">+</button></div>
+          <span class="note" id="paxNote">× ₱349 matag ulo</span>
+        </div>
+        <div class="fields">
+          <label class="f">Pangalan<input id="fName" autocomplete="name" placeholder="Juan Dela Cruz" maxlength="80"></label>
+          <label class="f">Mobile number<input id="fPhone" inputmode="tel" autocomplete="tel" placeholder="09XX XXX XXXX" maxlength="20"></label>
+          <label class="f" style="grid-column:1/-1">Note <span class="h">Optional — birthday, bata, allergy, etc.</span><input id="fNote" placeholder="Birthday ni Mama" maxlength="200"></label>
+        </div>
+        <div class="total"><span>Total nga bayranan</span><span class="amt mono" id="totalAmt">₱698</span></div>
+      </section>
+
+      <section class="block">
+        <div class="steplab">3 · Bayad daan</div>
+        <h2>Bayri para ma-reserve</h2>
+        <p class="sub">I-send ang total sa GCash, dayon i-type ang reference number.</p>
+        <dl class="pay">
+          <dt>GCash name</dt><dd id="pName">—</dd>
+          <dt>GCash number</dt><dd class="mono" id="pNum">—</dd>
+          <dt>Amount</dt><dd class="mono" id="pAmt">₱698</dd>
+        </dl>
+        <label class="f" style="margin-bottom:12px">GCash reference no.<input id="fRef" inputmode="numeric" placeholder="13-digit ref no." class="mono" maxlength="30"></label>
+        <ul class="terms">
+          <li>Non-refundable ang bayad. Kung dili ka makaabot, dili na ma-refund.</li>
+          <li>Pwede i-move sa laing gabii kung mo-text ka sa dili pa ang cut-off, basta naa pay slot.</li>
+          <li>Abot sa 6:00 PM. Last call sa grill 8:15 PM, sirado 8:30 PM.</li>
+          <li>Bawal ang sobra-sobra nga tira — may leftover charge.</li>
+        </ul>
+        <label class="check"><input type="checkbox" id="fAgree"><span>Nabasa ug uyon ko sa rules. Sabot ko nga <b>non-refundable</b> ang bayad.</span></label>
+        <div class="row" style="margin-top:12px"><button class="btn" id="submitBtn" disabled>I-submit ang booking</button></div>
+        <div class="msg" id="bookMsg" role="status"></div>
+      </section>
+    </div>
+
+    <div id="bookDone" hidden>
+      <div class="ticket">
+        <div class="eyebrow" style="color:var(--muted)">Imong booking code</div>
+        <div class="code" id="doneCode">SG-XXXX</div>
+        <p id="doneText" style="margin:6px 0 4px"></p>
+        <p class="note">I-screenshot ni. Ipakita sa counter pag-abot. Status: <span class="pill st-pending">Pending verify</span> — i-confirm namo inig ka-check sa GCash.</p>
+        <div class="row" style="justify-content:center;margin-top:12px"><button class="btn ghost" id="againBtn">Mag-book pag-usab</button></div>
+      </div>
+    </div>
+  </main>
+
+  <main id="viewCheck" hidden>
+    <section class="block">
+      <h2>I-check akong booking</h2>
+      <p class="sub">I-type ang code nga nadawat nimo pag-book.</p>
+      <div class="row"><input id="chkCode" class="mono" placeholder="SG-XXXX" style="max-width:220px;text-transform:uppercase"><button class="btn" id="chkBtn">I-check</button></div>
+      <div id="chkOut" class="msg" role="status"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const DOW = ["Dom","Lun","Mar","Miy","Huw","Biy","Sab"];
+  const MON = ["Ene","Peb","Mar","Abr","May","Hun","Hul","Ago","Set","Okt","Nob","Dis"];
+  const STL = {pending:"Pending verify",confirmed:"Confirmed",arrived:"Niabot",noshow:"No-show",cancelled:"Cancelled"};
+  const LBL = {closed:"Sirado",cutoff:"Cut-off na",full:"Full na"};
+  let cfg = {price:349,maxPax:10,capacity:40,timeLabel:"6:00–8:30 PM",cutoffHour:12,cutoffDaysBefore:0,gcashName:"—",gcashNumber:"—"};
+  let days = [], today = null, selDate = null, pax = 2;
+  const peso = n => "₱" + Number(n||0).toLocaleString("en-PH");
+  const dowOf = s => { const [y,m,d]=s.split("-").map(Number); return new Date(Date.UTC(y,m-1,d)).getUTCDay(); };
+  const niceDate = s => { const [,m,d]=s.split("-").map(Number); return DOW[dowOf(s)]+", "+MON[m-1]+" "+d; };
+  const hourLabel = h => h===12?"12:00 NN":h===0?"12:00 MN":(h%12)+":00 "+(h<12?"AM":"PM");
+  const dayOf = d => days.find(x=>x.date===d);
+
+  async function load(){
+    try{
+      const r = await fetch("/api/public"); if(!r.ok) throw 0;
+      const j = await r.json(); cfg = j.config; days = j.days; today = j.today;
+      $("loadErr").hidden = true;
+    }catch(e){ $("loadErr").hidden = false; }
+    paint();
+  }
+  function paint(){
+    $("hPrice").textContent = cfg.price; $("hTime").textContent = cfg.timeLabel;
+    $("hCut").textContent = hourLabel(cfg.cutoffHour) + (cfg.cutoffDaysBefore ? " sa adlaw sa wala pa" : " sa adlaw mismo");
+    $("pName").textContent = cfg.gcashName; $("pNum").textContent = cfg.gcashNumber;
+    const el = $("days"); el.textContent = "";
+    days.forEach((d,i)=>{
+      const b=document.createElement("button"); b.type="button"; b.className="day";
+      const ok = d.status==="open"; b.disabled=!ok; b.setAttribute("aria-pressed",String(selDate===d.date));
+      const [,m,dd]=d.date.split("-").map(Number);
+      b.innerHTML='<span class="dn"></span><span class="dd"></span><span class="ds"></span>';
+      b.children[0].textContent = i===0?"Karon":i===1?"Ugma":DOW[dowOf(d.date)];
+      b.children[1].textContent = MON[m-1]+" "+dd;
+      b.children[2].textContent = ok ? d.left+" slots" : LBL[d.status];
+      if(ok) b.children[2].classList.add(d.left<=Math.max(4,cfg.capacity*0.2)?"low":"ok");
+      b.onclick=()=>{ selDate=d.date; paint(); };
+      el.appendChild(b);
+    });
+    if(selDate && (!dayOf(selDate) || dayOf(selDate).status!=="open")) selDate=null;
+    syncForm();
+  }
+  function maxAllowed(){ return selDate ? Math.min(cfg.maxPax, dayOf(selDate).left) : cfg.maxPax; }
+  function syncForm(){
+    if(pax>maxAllowed() && maxAllowed()>0) pax=maxAllowed();
+    $("pax").textContent=pax;
+    $("paxNote").textContent="× "+peso(cfg.price)+" matag ulo"+(selDate?" · "+dayOf(selDate).left+" slots bakante":"");
+    const tot=pax*cfg.price; $("totalAmt").textContent=peso(tot); $("pAmt").textContent=peso(tot);
+    $("submitBtn").disabled = !(selDate && $("fName").value.trim() && $("fPhone").value.replace(/\D/g,"").length>=10 && $("fRef").value.trim().length>=6 && $("fAgree").checked);
+  }
+  $("paxMinus").onclick=()=>{ if(pax>1){pax--;syncForm();} };
+  $("paxPlus").onclick=()=>{ if(pax<maxAllowed()){pax++;syncForm();} };
+  ["fName","fPhone","fRef","fNote"].forEach(id=>$(id).addEventListener("input",syncForm));
+  $("fAgree").addEventListener("change",syncForm);
+
+  $("submitBtn").onclick=async()=>{
+    const msg=$("bookMsg"); msg.className="msg"; msg.textContent="Gi-save…"; $("submitBtn").disabled=true;
+    try{
+      const r=await fetch("/api/bookings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        date:selDate,pax,name:$("fName").value,phone:$("fPhone").value,note:$("fNote").value,gcashRef:$("fRef").value,agree:$("fAgree").checked})});
+      const j=await r.json();
+      if(!r.ok){ msg.className="msg err"; msg.textContent=j.error||"Wala na-save. Sulayi pag-usab."; await load(); return; }
+      $("doneCode").textContent=j.code;
+      $("doneText").textContent=niceDate(j.date)+" · "+j.pax+" ka ulo · "+peso(j.total)+" · "+j.timeLabel;
+      $("bookForm").hidden=true; $("bookDone").hidden=false; msg.textContent="";
+      window.scrollTo({top:0,behavior:"smooth"});
+    }catch(e){ msg.className="msg err"; msg.textContent="Walay koneksyon. Sulayi pag-usab."; syncForm(); }
+  };
+  $("againBtn").onclick=()=>{ ["fName","fPhone","fNote","fRef"].forEach(id=>$(id).value=""); $("fAgree").checked=false; selDate=null; pax=2;
+    $("bookDone").hidden=true; $("bookForm").hidden=false; load(); };
+
+  $("chkBtn").onclick=async()=>{
+    const out=$("chkOut"), code=$("chkCode").value.trim().toUpperCase(); out.className="msg"; out.textContent="…";
+    try{
+      const r=await fetch("/api/bookings/"+encodeURIComponent(code)); const j=await r.json();
+      if(!r.ok){ out.className="msg err"; out.textContent=j.error; return; }
+      const p=document.createElement("span"); p.className="pill st-"+j.status; p.textContent=STL[j.status]||j.status;
+      out.textContent=niceDate(j.date)+" · "+j.pax+" ka ulo · "+peso(j.total)+"  "; out.appendChild(p);
+    }catch(e){ out.className="msg err"; out.textContent="Walay koneksyon."; }
+  };
+  $("chkCode").addEventListener("keydown",e=>{ if(e.key==="Enter") $("chkBtn").click(); });
+
+  function tab(which){ [["tabBook","viewBook"],["tabCheck","viewCheck"]].forEach(([t,v])=>{ const on=t===which; $(t).setAttribute("aria-selected",String(on)); $(v).hidden=!on; }); }
+  $("tabBook").onclick=()=>tab("tabBook"); $("tabCheck").onclick=()=>tab("tabCheck");
+
+  load(); setInterval(load, 60000);
+})();
+</script>
+</body>
+</html>
