@@ -26,6 +26,7 @@ const DEFAULTS = {
   timeLabel: "6:00–8:30 PM", openDays: [0, 1, 2, 3, 4, 5, 6], closedDates: [],
   depositPct: 20,
   maxMoves: 1,
+  kidPrice: 199, kidRule: "Kids 4–10 years old", freeRule: "3 years old and below", vatRegistered: false,
 };
 const STATUSES = ["pending", "confirmed", "arrived", "noshow", "cancelled"];
 
@@ -53,6 +54,8 @@ async function migrate() {
     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS moves INT NOT NULL DEFAULT 0;
     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS tendered NUMERIC;
     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS change_given NUMERIC;
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS discounts JSONB;
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS discount NUMERIC NOT NULL DEFAULT 0;
     CREATE TABLE IF NOT EXISTS z_readings (
       id SERIAL PRIMARY KEY, date TEXT NOT NULL UNIQUE, opening_float NUMERIC NOT NULL DEFAULT 0,
       counted NUMERIC NOT NULL DEFAULT 0, expected NUMERIC NOT NULL DEFAULT 0, over_short NUMERIC NOT NULL DEFAULT 0,
@@ -158,8 +161,8 @@ app.get("/api/public", wrap(async (req, res) => {
     const d = addDays(from, i), reason = dayClosedReason(d, cfg), left = Math.max(0, cfg.capacity - (heads[d] || 0));
     days.push({ date: d, left, status: reason ? (Date.now() >= cutoffInstant(d, cfg) ? "cutoff" : "closed") : (left > 0 ? "open" : "full") });
   }
-  const { price, maxPax, cutoffHour, cutoffDaysBefore, gcashName, gcashNumber, timeLabel, capacity, depositPct, maxMoves } = cfg;
-  res.json({ config: { price, maxPax, cutoffHour, cutoffDaysBefore, gcashName, gcashNumber, timeLabel, capacity, depositPct, maxMoves }, days, today: from });
+  const { price, maxPax, cutoffHour, cutoffDaysBefore, gcashName, gcashNumber, timeLabel, capacity, depositPct, maxMoves, kidPrice, kidRule, freeRule } = cfg;
+  res.json({ config: { price, maxPax, cutoffHour, cutoffDaysBefore, gcashName, gcashNumber, timeLabel, capacity, depositPct, maxMoves, kidPrice, kidRule, freeRule }, days, today: from });
 }));
 
 app.post("/api/bookings", limit(8, 15 * 60e3), wrap(async (req, res) => {
@@ -328,6 +331,10 @@ app.put("/api/admin/config", requireAdmin, wrap(async (req, res) => {
     timeLabel: String(b.timeLabel || cur.timeLabel).slice(0, 40),
     depositPct: int(b.depositPct, 0, 100, cur.depositPct),
     maxMoves: int(b.maxMoves, 0, 10, cur.maxMoves ?? 1),
+    kidPrice: int(b.kidPrice, 0, 100000, cur.kidPrice ?? 199),
+    kidRule: String(b.kidRule ?? cur.kidRule ?? "").slice(0, 60),
+    freeRule: String(b.freeRule ?? cur.freeRule ?? "").slice(0, 60),
+    vatRegistered: b.vatRegistered === undefined ? !!cur.vatRegistered : !!b.vatRegistered,
     cashierPin: /^\d{4,8}$/.test(String(b.cashierPin || "")) ? String(b.cashierPin) : (b.cashierPin === "" ? "" : (cur.cashierPin || "")),
     openDays: Array.isArray(b.openDays) ? [...new Set(b.openDays.map(Number).filter(n => n >= 0 && n <= 6))] : cur.openDays,
     closedDates: Array.isArray(b.closedDates) ? b.closedDates.map(String).filter(isValidDate).slice(0, 100) : cur.closedDates,
@@ -367,10 +374,11 @@ const CLOSED_MSG = "Tonight is already closed (Z reading done). Ask the manager 
 
 app.get("/api/cashier/tonight", requireCashier, wrap(async (req, res) => {
   const date = todayManila(), cfg = await getConfig();
-  const b = await pool.query(`SELECT code, pax, total, deposit, balance, name, phone, note, status, gcash_ref LIKE 'WALKIN-%' AS walkin
+  const b = await pool.query(`SELECT code, pax, price, total, deposit, balance, discount::float, discounts, name, phone, note, status, gcash_ref LIKE 'WALKIN-%' AS walkin
     FROM bookings WHERE date = $1 AND status <> 'cancelled' ORDER BY name`, [date]);
-  const x = await pool.query(`SELECT id, description, amount::float FROM other_income WHERE date = $1 ORDER BY id DESC`, [date]);
-  res.json({ date, timeLabel: cfg.timeLabel, capacity: cfg.capacity, price: cfg.price, bookings: b.rows, extras: x.rows, closed: await nightClosed(date) });
+  const x = await pool.query(`SELECT id, description, amount::float, code, tendered::float, change_given::float AS change, paid FROM other_income WHERE date = $1 ORDER BY id DESC`, [date]);
+  const addons = (await pool.query("SELECT id, name, category, price::float FROM addons WHERE active ORDER BY array_position(ARRAY['Drinks','Add-ons','Charges','Others'], category), sort, name")).rows;
+  res.json({ date, timeLabel: cfg.timeLabel, capacity: cfg.capacity, price: cfg.price, kidPrice: cfg.kidPrice ?? 199, kidRule: cfg.kidRule, freeRule: cfg.freeRule, vatRegistered: !!cfg.vatRegistered, bookings: b.rows, extras: x.rows, addons, closed: await nightClosed(date) });
 }));
 
 app.post("/api/cashier/checkin/:code", requireCashier, wrap(async (req, res) => {
@@ -416,9 +424,12 @@ app.post("/api/cashier/pax/:code", requireCashier, wrap(async (req, res) => {
       const left = cfg.capacity - used;
       if (pax - b.pax > left && !(req.body || {}).force) return fail(409, `Only ${Math.max(0, left)} seat(s) left tonight.`, { full: true });
     }
-    const total = pax * b.price, balance = Math.max(0, total - b.deposit);
-    await client.query("UPDATE bookings SET pax = $1, total = $2, balance = $3, note = TRIM(note || $4), updated_at = now() WHERE code = $5",
-      [pax, total, balance, ` (guests ${b.pax}→${pax})`, req.params.code]);
+    const disc = (await client.query("SELECT discounts FROM bookings WHERE code = $1", [req.params.code])).rows[0].discounts || {};
+    let pb = priceBreakdown(b.price, pax, disc, cfg);
+    if (pb.adults < 0) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Remove some discounts or kids first; they are more than the new guest count." }); }
+    const total = pb.total, balance = Math.max(0, total - b.deposit);
+    await client.query("UPDATE bookings SET pax = $1, total = $2, balance = $3, discount = $6, note = TRIM(note || $4), updated_at = now() WHERE code = $5",
+      [pax, total, balance, ` (guests ${b.pax}→${pax})`, req.params.code, pb.discount]);
     await client.query("COMMIT");
     backoffice.alert("guests", `Guests changed at the door: ${req.params.code} ${b.name} ${b.pax} → ${pax}. New total ₱${total}.`, req.params.code, date);
     res.json({ ok: true, pax, total, balance, added: pax > b.pax && b.status === "arrived" ? (pax - b.pax) * b.price : 0 });
@@ -441,14 +452,11 @@ app.post("/api/cashier/walkin", requireCashier, wrap(async (req, res) => {
     if (pax > cfg.capacity - used && !b.force) { await client.query("ROLLBACK"); return res.status(409).json({ error: `Only ${Math.max(0, cfg.capacity - used)} seat(s) left tonight.`, full: true }); }
     const code = "WI-" + Array.from(crypto.randomBytes(4)).map(x => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[x % 32]).join("");
     const total = pax * cfg.price;
-    const t = Number(b.tendered);
-    const tendered = Number.isFinite(t) && t > 0 ? t : null;
-    if (tendered !== null && tendered < total) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Cash received is less than the amount to collect." }); }
-    const change = tendered === null ? null : tendered - total;
-    await client.query(`INSERT INTO bookings(code, date, pax, price, total, name, phone, note, gcash_ref, deposit, balance, status, arrived_on, tendered, change_given)
-      VALUES ($1,$2,$3,$4,$5,$6,'',$7,$8,0,$5,'arrived',$2,$9,$10)`, [code, date, pax, cfg.price, total, name, "Walk-in", "WALKIN-" + code, tendered, change]);
+    // Walk-ins start as "confirmed" with no down payment; the cashier collects (and applies discounts) on their card.
+    await client.query(`INSERT INTO bookings(code, date, pax, price, total, name, phone, note, gcash_ref, deposit, balance, status)
+      VALUES ($1,$2,$3,$4,$5,$6,'','',$7,0,$5,'confirmed')`, [code, date, pax, cfg.price, total, name, "WALKIN-" + code]);
     await client.query("COMMIT");
-    res.json({ ok: true, code, total, tendered, change });
+    res.json({ ok: true, code, total });
   } catch (e) { await client.query("ROLLBACK").catch(() => {}); throw e; } finally { client.release(); }
 }));
 
@@ -461,8 +469,88 @@ app.post("/api/cashier/extra", requireCashier, wrap(async (req, res) => {
   await pool.query("INSERT INTO other_income(date, description, amount) VALUES ($1,$2,$3)", [todayManila(), description, amount]);
   res.json({ ok: true });
 }));
+// Senior / PWD (20% by law, VAT-exempt if VAT registered), kids price, and free toddlers on tonight's booking.
+function priceBreakdown(unit, pax, d, cfg) {
+  const sc = (d.seniors || []).length, pwd = (d.pwds || []).length, kids = d.kids || 0, free = d.free || 0;
+  const adults = pax - sc - pwd - kids - free;
+  const scUnit = Math.round((cfg.vatRegistered ? unit / 1.12 * 0.8 : unit * 0.8) * 100) / 100;
+  const kidUnit = Number(cfg.kidPrice ?? 199);
+  // Whole pesos (cash register rounding)
+  const total = Math.round(adults * unit + (sc + pwd) * scUnit + kids * kidUnit);
+  return { adults, sc, pwd, kids, free, scUnit, kidUnit, total, discount: Math.round((pax * unit - total) * 100) / 100 };
+}
+app.post("/api/cashier/discount/:code", requireCashier, wrap(async (req, res) => {
+  const date = todayManila();
+  if (await nightClosed(date)) return res.status(409).json({ error: CLOSED_MSG });
+  const b0 = req.body || {};
+  const person = p => ({ name: String((p && p.name) || "").trim().slice(0, 80), idNo: String((p && p.idNo) || "").trim().slice(0, 40) });
+  const d = { seniors: (Array.isArray(b0.seniors) ? b0.seniors : []).slice(0, 50).map(person), pwds: (Array.isArray(b0.pwds) ? b0.pwds : []).slice(0, 50).map(person),
+    kids: Math.max(0, parseInt(b0.kids, 10) || 0), free: Math.max(0, parseInt(b0.free, 10) || 0) };
+  if ([...d.seniors, ...d.pwds].some(p => !p.name || !p.idNo)) return res.status(400).json({ error: "Enter the name and ID number for every Senior and PWD." });
+  const cfg = await getConfig();
+  const b = (await pool.query("SELECT pax, price, deposit, status FROM bookings WHERE code = $1 AND date = $2", [req.params.code, date])).rows[0];
+  if (!b) return res.status(404).json({ error: "Booking not found for tonight." });
+  if (b.status !== "confirmed") return res.status(409).json({ error: "Apply discounts before collecting payment." });
+  const p = priceBreakdown(b.price, b.pax, d, cfg);
+  if (p.adults < 0) return res.status(400).json({ error: `That is more than the ${b.pax} guests on this booking. Change guests first.` });
+  const balance = Math.max(0, p.total - b.deposit);
+  await pool.query("UPDATE bookings SET discounts = $1, discount = $2, total = $3, balance = $4, updated_at = now() WHERE code = $5",
+    [(p.sc + p.pwd + p.kids + p.free) ? d : null, p.discount, p.total, balance, req.params.code]);
+  res.json({ ok: true, ...p, balance });
+}));
+
+// Sell add-ons from the menu (cart). Prices come from the server menu; linked stock is deducted.
+app.post("/api/cashier/sale", requireCashier, wrap(async (req, res) => {
+  const b = req.body || {}, date = todayManila();
+  if (await nightClosed(date)) return res.status(409).json({ error: CLOSED_MSG });
+  const want = (Array.isArray(b.lines) ? b.lines : []).map(l => ({ id: parseInt(l.id, 10), qty: parseInt(l.qty, 10) })).filter(l => l.id && l.qty > 0 && l.qty <= 500);
+  if (!want.length) return res.status(400).json({ error: "Tap at least one item." });
+  const menu = Object.fromEntries((await pool.query(`SELECT a.id, a.name, a.price::float, a.item_id, a.item_qty::float, i.cost::float AS cost
+    FROM addons a LEFT JOIN items i ON i.id = a.item_id WHERE a.active AND a.id = ANY($1)`, [want.map(l => l.id)])).rows.map(r => [r.id, r]));
+  const lines = want.filter(l => menu[l.id]).map(l => ({ id: l.id, name: menu[l.id].name, qty: l.qty, price: menu[l.id].price, amount: l.qty * menu[l.id].price }));
+  if (!lines.length) return res.status(400).json({ error: "Those items are no longer on the menu." });
+  const total = lines.reduce((s, l) => s + l.amount, 0);
+  const payLater = !!b.payLater;
+  const t = Number(b.tendered), tendered = !payLater && Number.isFinite(t) && t > 0 ? t : null;
+  if (tendered !== null && tendered < total) return res.status(400).json({ error: "Cash received is less than the total." });
+  let who = "";
+  const code = String(b.code || "").slice(0, 20) || null;
+  if (payLater && !code) return res.status(400).json({ error: "Pick a guest to put this on their bill." });
+  if (code) { const g = (await pool.query("SELECT name FROM bookings WHERE code = $1", [code])).rows[0]; if (g) who = " — " + g.name; }
+  const desc = lines.map(l => l.name + (l.qty > 1 ? " ×" + l.qty : "")).join(", ") + who;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const r = await client.query(`INSERT INTO other_income(date, description, amount, code, items, tendered, change_given, paid, paid_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $8 THEN now() ELSE NULL END) RETURNING id`,
+      [date, desc.slice(0, 200), total, code, JSON.stringify(lines), tendered, tendered === null ? null : tendered - total, !payLater]);
+    const saleId = r.rows[0].id;
+    for (const l of want) {
+      const m = menu[l.id];
+      if (m && m.item_id && m.item_qty > 0)
+        await client.query("INSERT INTO stock_moves(date, item_id, type, qty, unit_cost, note) VALUES ($1,$2,'usage',$3,$4,$5)",
+          [date, m.item_id, m.item_qty * l.qty, m.cost || 0, "sale#" + saleId]);
+    }
+    await client.query("COMMIT");
+    res.json({ ok: true, total, payLater, tendered, change: tendered === null ? null : tendered - total });
+  } catch (e) { await client.query("ROLLBACK").catch(() => {}); throw e; } finally { client.release(); }
+}));
+
+// Pay a guest's open bill (items saved with "pay later")
+app.post("/api/cashier/bill/:code/pay", requireCashier, wrap(async (req, res) => {
+  const date = todayManila();
+  if (await nightClosed(date)) return res.status(409).json({ error: CLOSED_MSG });
+  const due = (await pool.query("SELECT COALESCE(SUM(amount),0)::float AS d FROM other_income WHERE date = $1 AND code = $2 AND NOT paid", [date, req.params.code])).rows[0].d;
+  if (!due) return res.status(400).json({ error: "This guest has no unpaid items." });
+  const t = Number((req.body || {}).tendered);
+  if (Number.isFinite(t) && t > 0 && t < due) return res.status(400).json({ error: "Cash received is less than the bill." });
+  await pool.query("UPDATE other_income SET paid = true, paid_at = now() WHERE date = $1 AND code = $2 AND NOT paid", [date, req.params.code]);
+  res.json({ ok: true, paid: due, change: Number.isFinite(t) && t > 0 ? t - due : null });
+}));
+
 app.delete("/api/cashier/extra/:id", requireCashier, wrap(async (req, res) => {
   if (await nightClosed(todayManila())) return res.status(409).json({ error: CLOSED_MSG });
+  await pool.query("DELETE FROM stock_moves WHERE note = $1", ["sale#" + parseInt(req.params.id, 10)]);
   await pool.query("DELETE FROM other_income WHERE id = $1 AND date = $2", [parseInt(req.params.id, 10), todayManila()]);
   res.json({ ok: true });
 }));
@@ -470,9 +558,9 @@ app.delete("/api/cashier/extra/:id", requireCashier, wrap(async (req, res) => {
 // ---- X / Z reading (end of night) ----
 async function buildZ(date) {
   const cfg = await getConfig();
-  const rows = (await pool.query(`SELECT code, name, pax, total, deposit, balance, status, tendered, change_given,
+  const rows = (await pool.query(`SELECT code, name, pax, total, deposit, balance, status, tendered, change_given, discount::float, discounts,
       gcash_ref LIKE 'WALKIN-%' AS walkin FROM bookings WHERE date = $1 AND status <> 'cancelled' ORDER BY code`, [date])).rows;
-  const extras = (await pool.query("SELECT description, amount::float FROM other_income WHERE date = $1 ORDER BY id", [date])).rows;
+  const extras = (await pool.query("SELECT description, amount::float, paid FROM other_income WHERE date = $1 ORDER BY id", [date])).rows;
   const n = v => Number(v || 0);
   const arrivedB = rows.filter(r => r.status === "arrived" && !r.walkin);
   const walkins = rows.filter(r => r.walkin && r.status === "arrived");
@@ -480,6 +568,7 @@ async function buildZ(date) {
   const waiting = rows.filter(r => r.status === "confirmed" || r.status === "pending");
   const sum = (a, f) => a.reduce((s, r) => s + n(f(r)), 0);
   const extraTotal = sum(extras, x => x.amount);
+  const extraPaid = sum(extras.filter(x => x.paid), x => x.amount);
   const r = {
     date, timeLabel: cfg.timeLabel, price: cfg.price,
     guests: {
@@ -493,9 +582,13 @@ async function buildZ(date) {
     },
     payments: {
       gcashDownPayments: sum(arrivedB, r => r.deposit) + sum(noshows, r => r.deposit),
-      cashBalances: sum(arrivedB, r => r.balance), cashWalkIns: sum(walkins, r => r.total), cashExtras: extraTotal,
+      cashBalances: sum(arrivedB, r => r.balance), cashWalkIns: sum(walkins, r => r.total), cashExtras: extraPaid,
     },
     uncollected: sum(waiting, r => r.balance),
+    discounts: (() => { const served = [...arrivedB, ...walkins]; const c = k => served.reduce((s, r) => s + (r.discounts && r.discounts[k] ? (Array.isArray(r.discounts[k]) ? r.discounts[k].length : r.discounts[k]) : 0), 0);
+      return { amount: sum(served, r => r.discount), seniors: c("seniors"), pwds: c("pwds"), kids: c("kids"), free: c("free"),
+        list: served.flatMap(r => [...((r.discounts && r.discounts.seniors) || []).map(p => ({ type: "Senior", ...p, code: r.code })), ...((r.discounts && r.discounts.pwds) || []).map(p => ({ type: "PWD", ...p, code: r.code }))]) }; })(),
+    unpaidBills: extraTotal - extraPaid,
     extrasList: extras,
   };
   r.sales.gross = r.sales.bookings + r.sales.walkIns + r.sales.extras + r.sales.noShowForfeited;
@@ -513,6 +606,7 @@ app.post("/api/cashier/zclose", requireCashier, wrap(async (req, res) => {
   if (await nightClosed(date)) return res.status(409).json({ error: "Tonight is already closed." });
   const report = await buildZ(date);
   if (report.counts.notYet && !b.force) return res.status(409).json({ error: `${report.counts.notYet} booking(s) are still not marked Arrived or No-show.`, pending: true });
+  if (report.unpaidBills && !b.force) return res.status(409).json({ error: `There are unpaid bills of ₱${report.unpaidBills}. Collect them first.`, pending: true });
   const openingFloat = Math.max(0, Number(b.openingFloat) || 0);
   const counted = Math.max(0, Number(b.counted) || 0);
   const expected = openingFloat + report.payments.cashTotal;

@@ -32,6 +32,7 @@
 .tender .line{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:16px}
 .tender .line b{font-family:var(--mono);font-size:20px}
 .tender input{font-size:22px;font-family:var(--mono);padding:10px 12px}
+.tender .row input{font-size:15px;font-family:var(--body);padding:8px 10px;min-width:0}
 .quick{display:flex;flex-wrap:wrap;gap:6px}
 .quick button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:8px 12px;font:600 15px var(--mono);cursor:pointer}
 .change{font-family:var(--display);font-size:30px;color:var(--good)}
@@ -46,6 +47,18 @@
 .zr .ln{display:flex;justify-content:space-between;gap:10px;padding:2px 0}
 .zr .ln.b{font-weight:700}
 .zr hr{border:0;border-top:1px dashed #111;margin:8px 0}
+.sheet-bg{position:fixed;inset:0;background:rgba(10,12,11,.55);z-index:40;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--surface);color:var(--ink);width:min(760px,100%);max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));box-shadow:0 -8px 30px rgba(0,0,0,.3)}
+@media (min-width:821px){.sheet-bg{align-items:center}.sheet{border-radius:16px}}
+.menu-cat{font:700 12px var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:12px 0 6px}
+.menu{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.menu button{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:10px;padding:12px 10px;text-align:left;cursor:pointer;font:600 15px var(--body);display:flex;flex-direction:column;gap:4px;min-height:68px}
+.menu button .p{font:600 14px var(--mono);color:var(--muted)}
+.menu button .q{align-self:flex-start;background:var(--accent);color:var(--accent-ink);border-radius:99px;padding:0 8px;font:700 12px var(--mono)}
+.cart{margin-top:12px;border-top:1px dashed var(--line);padding-top:8px}
+.cline{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:15px}
+.cline .st{display:flex;align-items:center;gap:4px}
+.cline .st button{width:34px;height:34px;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;font-size:18px;cursor:pointer}
 .closedban{background:var(--info-bg);color:var(--info);border-radius:8px;padding:12px 14px;margin-bottom:12px;font-weight:600}
 @media print{
   body{background:#fff !important}
@@ -114,37 +127,47 @@
       <div style="display:flex;flex-direction:column;gap:16px">
         <section class="block" style="margin:0">
           <h2>Walk-in guests</h2>
-          <p class="sub">No booking. They pay the full amount in cash now.</p>
+          <p class="sub">No booking. Adds them to the guest list; then tap <b>Collect</b> on their name (discounts and kids can be applied there).</p>
           <div class="fields">
             <label class="f">Name<input id="wName" placeholder="Walk-in"></label>
             <label class="f">Guests<input id="wPax" type="number" min="1" value="2" inputmode="numeric"></label>
           </div>
-          <div class="total"><span>Collect cash</span><span class="amt mono" id="wTotal">₱0</span></div>
-          <div class="tender" style="margin-top:10px">
-            <label class="f">Cash received (₱)<input id="wTender" type="number" min="0" inputmode="decimal" placeholder="0"></label>
-            <div class="quick" id="wQuick"></div>
-            <div class="line"><span>Change</span><span class="change" id="wChange">₱0</span></div>
-          </div>
-          <div class="row" style="margin-top:10px"><button class="btn big" id="wBtn">Add walk-in &amp; collect</button></div>
+          <div class="total"><span>Regular price</span><span class="amt mono" id="wTotal">₱0</span></div>
+          <div class="row" style="margin-top:10px"><button class="btn big" id="wBtn">Add walk-in</button></div>
           <div class="msg" id="wMsg" role="status"></div>
         </section>
 
         <section class="block" style="margin:0">
-          <h2>Extra sales</h2>
-          <p class="sub">Anything else paid in cash tonight.</p>
-          <div class="chips" id="chips">
-            <button type="button">Extra drinks</button><button type="button">Leftover charge</button><button type="button">Soju / beer</button><button type="button">Cheese add-on</button>
-          </div>
-          <div class="fields">
-            <label class="f">What was sold<input id="xDesc" placeholder="Extra drinks"></label>
-            <label class="f">Amount (₱)<input id="xAmt" type="number" min="1" inputmode="decimal"></label>
-          </div>
-          <div class="row" style="margin-top:10px"><button class="btn big" id="xBtn">Add sale</button></div>
+          <h2>Drinks &amp; add-ons</h2>
+          <p class="sub">To sell to a guest, tap <b>+ Add items</b> on their name. For someone not on the list, use the button below.</p>
+          <div class="row"><button class="btn big" id="xOpen" type="button">Sell items (no guest)</button></div>
+          <details style="margin-top:12px"><summary class="note" style="cursor:pointer">Item not on the menu? Enter it manually</summary>
+            <div class="fields" style="margin-top:8px">
+              <label class="f">What was sold<input id="xDesc" placeholder="Extra drinks"></label>
+              <label class="f">Amount (₱)<input id="xAmt" type="number" min="1" inputmode="decimal"></label>
+            </div>
+            <div class="row" style="margin-top:10px"><button class="btn" id="xBtn">Add sale</button></div>
+          </details>
           <div class="msg" id="xMsg" role="status"></div>
-          <div id="xList" style="margin-top:8px"></div>
+          <h3 style="margin:14px 0 4px;font-size:15px">Sold tonight</h3>
+          <div id="xList"></div>
         </section>
       </div>
     </div>
+  </div>
+</div>
+
+<div class="sheet-bg" id="sheetBg" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="row" style="justify-content:space-between"><h2 id="sheetTitle" style="margin:0">Add items</h2><button class="btn ghost sm" id="sheetX" type="button">Cancel</button></div>
+    <div class="note" id="sheetSub"></div>
+    <div id="menuBox"></div>
+    <div class="cart" id="cartBox"></div>
+    <div id="sheetTender" style="margin-top:10px"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn big" id="sheetLater" type="button" disabled>Save to bill (pay later)</button>
+      <button class="btn big ok" id="sheetSave" type="button" disabled>Pay now</button>
+      <span class="msg" id="sheetMsg" style="margin:0"></span></div>
   </div>
 </div>
 
@@ -172,7 +195,7 @@
     setTimeout(()=>inp.focus(), 50);
     return box;
   }
-  let data = null, confirmCode = null, paxEdit = null, zOpen = false;
+  let data = null, confirmCode = null, paxEdit = null, zOpen = false, billPay = null, disc = null;
 
   async function api(url, opts){
     const r = await fetch(url, opts);
@@ -199,13 +222,13 @@
   function render(){
     $("tDate").textContent = niceDate(data.date); $("tTime").textContent = data.timeLabel;
     $("closedBan").hidden = !data.closed;
-    ["wBtn","xBtn"].forEach(id => $(id).disabled = !!data.closed);
+    ["wBtn","xBtn","xOpen"].forEach(id => $(id).disabled = !!data.closed);
     const B = data.bookings;
     const expected = B.filter(b=>b.status!=="noshow").reduce((s,b)=>s+b.pax,0);
     const arrived = B.filter(b=>b.status==="arrived");
     const collected = arrived.reduce((s,b)=>s+b.balance,0);
-    const extras = data.extras.reduce((s,x)=>s+x.amount,0);
-    const toCollect = B.filter(b=>b.status==="confirmed").reduce((s,b)=>s+b.balance,0);
+    const extras = data.extras.filter(x=>x.paid).reduce((s,x)=>s+x.amount,0);
+    const toCollect = B.filter(b=>b.status==="confirmed").reduce((s,b)=>s+b.balance,0) + data.extras.filter(x=>!x.paid).reduce((s,x)=>s+x.amount,0);
     $("sExpected").textContent = expected;
     $("sArrived").textContent = arrived.reduce((s,b)=>s+b.pax,0);
     $("sPending").textContent = peso(toCollect);
@@ -218,7 +241,8 @@
     const list = $("list"); list.textContent = "";
     if (!rows.length) { const e=document.createElement("div"); e.className="empty"; e.textContent = B.length ? "No guest matches your search." : "No bookings for tonight yet."; list.appendChild(e); }
     rows.forEach(b => {
-      const c = document.createElement("div"); c.className = "guest" + (b.status==="arrived"||b.status==="noshow" ? " done" : "");
+      const hasBill = data.extras.some(x => x.code === b.code && !x.paid);
+      const c = document.createElement("div"); c.className = "guest" + ((b.status==="arrived"||b.status==="noshow") && !hasBill && !(disc&&disc.code===b.code) && !(paxEdit&&paxEdit.code===b.code) && billPay!==b.code ? " done" : "");
       const nm = document.createElement("div"); nm.className="nm"; nm.textContent = b.name + " · " + b.pax + (b.pax>1?" guests":" guest");
       const pill = document.createElement("span"); pill.className = "pill st-" + b.status;
       pill.textContent = {confirmed:"Booked",pending:"Not verified",arrived:b.walkin?"Walk-in paid":"Arrived · paid",noshow:"No-show"}[b.status];
@@ -226,11 +250,18 @@
       const add = t => { const s=document.createElement("span"); s.textContent=t; sub.appendChild(s); };
       add("Code " + b.code);
       if (!b.walkin) add("Down payment " + peso(b.deposit) + " (GCash)");
-      add((b.walkin ? "Paid " : "Balance ") + peso(b.balance) + " cash");
+      add((b.walkin && b.status==="arrived" ? "Paid " : b.walkin ? "To pay " : "Balance ") + peso(b.balance) + " cash");
       if (b.note && !b.walkin) add("Note: " + b.note);
+      if (b.discounts) { const d=b.discounts, parts=[]; if((d.seniors||[]).length) parts.push(d.seniors.length+" senior"); if((d.pwds||[]).length) parts.push(d.pwds.length+" PWD"); if(d.kids) parts.push(d.kids+" kid"+(d.kids>1?"s":"")); if(d.free) parts.push(d.free+" free"); add(parts.join(", ") + " · less " + peso(b.discount)); }
+      const paidSum = data.extras.filter(x => x.code === b.code && x.paid).reduce((s,x)=>s+x.amount,0);
+      const openBill = data.extras.filter(x => x.code === b.code && !x.paid).reduce((s,x)=>s+x.amount,0);
+      if (paidSum) add("Items paid " + peso(paidSum));
+      if (openBill) { const s=document.createElement("span"); s.className="hint"; s.style.fontWeight="700"; s.textContent="Unpaid bill " + peso(openBill); sub.appendChild(s); }
       const act = document.createElement("div"); act.className="act";
       const btn = (label, cls, fn) => { const x=document.createElement("button"); x.type="button"; x.className="btn "+cls; x.textContent=label; x.onclick=fn; act.appendChild(x); return x; };
-      if (paxEdit && paxEdit.code === b.code) {
+      if (disc && disc.code === b.code) {
+        act.appendChild(discEditor(b));
+      } else if (paxEdit && paxEdit.code === b.code) {
         const unit = b.pax ? b.total / b.pax : data.price;
         const newTotal = paxEdit.pax * unit, newBal = Math.max(0, newTotal - b.deposit);
         const minus = btn("−", "ghost big", () => { if (paxEdit.pax > (b.status==="arrived" ? b.pax : 1)) { paxEdit.pax--; render(); } });
@@ -259,6 +290,7 @@
         } else {
           btn("Collect " + peso(b.balance) + " cash", "big", () => { confirmCode=b.code; render(); });
           btn("Change guests", "ghost sm", () => { confirmCode=null; paxEdit={code:b.code, pax:b.pax, force:false}; render(); });
+          btn("Senior / PWD / kids", "ghost sm", () => { confirmCode=null; const d=b.discounts||{}; disc={code:b.code, seniors:(d.seniors||[]).map(x=>({...x})), pwds:(d.pwds||[]).map(x=>({...x})), kids:d.kids||0, free:d.free||0}; render(); });
           btn("No-show", "ghost sm", () => checkin(b.code, "noshow"));
         }
       } else if (b.status === "pending") {
@@ -267,13 +299,28 @@
         if (b.status === "arrived") btn("+ Add guests", "ghost sm", () => { paxEdit={code:b.code, pax:b.pax+1, force:false}; render(); });
         btn("Undo", "ghost sm", () => checkin(b.code, "confirmed"));
       }
+      if (billPay === b.code) {
+        let tender = null;
+        const ok = btn("Confirm bill payment", "big ok", async () => {
+          ok.disabled = true;
+          try { const j = await post("/api/cashier/bill/"+encodeURIComponent(b.code)+"/pay", {tendered: tender}); billPay = null; alertMsg("Bill paid " + peso(j.paid) + (j.change ? ". Change: " + peso(j.change) : "") + ".", true); load(); }
+          catch(e){ if(e.message!=="login"){ ok.disabled=false; alertMsg(e.message); } }
+        });
+        ok.disabled = true;
+        act.insertBefore(tenderBox(openBill, t => { tender = t; ok.disabled = !(t > 0); ok.textContent = t > openBill ? "Confirm · give " + peso(t - openBill) + " change" : "Confirm bill payment"; }), ok);
+        btn("Back", "ghost", () => { billPay = null; render(); });
+      } else if (["confirmed","arrived"].includes(b.status) && !data.closed && !(paxEdit && paxEdit.code===b.code) && !(disc && disc.code===b.code) && confirmCode!==b.code) {
+        btn("+ Add items", "ghost sm", () => openSheet(b));
+        if (openBill) btn("Pay bill " + peso(openBill), "sm", () => { billPay = b.code; confirmCode = null; render(); });
+      }
       c.append(nm, pill, sub, act); list.appendChild(c);
     });
 
     const xl = $("xList"); xl.textContent = "";
+    if (!data.extras.length) { const e=document.createElement("div"); e.className="note"; e.textContent="No drinks or add-ons sold yet."; xl.appendChild(e); }
     data.extras.forEach(x => {
       const r=document.createElement("div"); r.className="xrow";
-      const l=document.createElement("span"); l.textContent=x.description;
+      const l=document.createElement("span"); l.textContent=x.description + (x.paid ? "" : " (unpaid)");
       const rr=document.createElement("span"); rr.className="row"; rr.style.gap="8px";
       const a=document.createElement("b"); a.className="mono"; a.textContent=peso(x.amount);
       const d=document.createElement("button"); d.className="btn ghost sm"; d.textContent="Remove";
@@ -290,33 +337,148 @@
   }
   function alertMsg(t, ok){ const e=document.createElement("div"); e.className="banner"; if(ok){ e.style.background="var(--good-bg)"; e.style.color="var(--good)"; } e.textContent=t; $("list").prepend(e); setTimeout(()=>e.remove(), 5000); }
 
+  // ================= ADD ITEMS (drinks / add-ons) =================
+  let sheetGuest = null, cart = {}, sheetTender = null;
+  function openSheet(guest){
+    sheetGuest = guest; cart = {}; sheetTender = null;
+    $("sheetTitle").textContent = guest ? "Add items · " + guest.name : "Sell items";
+    $("sheetSub").textContent = guest ? "Code " + guest.code + " · " + guest.pax + " guest(s). Tap items to add them." : "Tap items to add them.";
+    $("sheetMsg").textContent = "";
+    const mb = $("menuBox"); mb.textContent = "";
+    if (!data.addons.length) { const e=document.createElement("div"); e.className="empty"; e.textContent="No menu items yet. The owner adds them in Back office → Add-on menu."; mb.appendChild(e); }
+    let cat = null, grid = null;
+    data.addons.forEach(a => {
+      if (a.category !== cat) { cat = a.category; const h=document.createElement("div"); h.className="menu-cat"; h.textContent=cat; mb.appendChild(h); grid=document.createElement("div"); grid.className="menu"; mb.appendChild(grid); }
+      const bt=document.createElement("button"); bt.type="button"; bt.dataset.id=a.id;
+      const n=document.createElement("span"); n.textContent=a.name; const p=document.createElement("span"); p.className="p"; p.textContent=peso(a.price);
+      bt.append(n,p); bt.onclick=()=>{ cart[a.id]=(cart[a.id]||0)+1; drawCart(); }; grid.appendChild(bt);
+    });
+    drawCart(); $("sheetBg").hidden = false; zOpen = true;
+  }
+  function closeSheet(){ $("sheetBg").hidden = true; zOpen = !$("zBox").hidden; sheetGuest = null; }
+  function cartTotal(){ return data.addons.reduce((s,a)=>s+(cart[a.id]||0)*a.price,0); }
+  function drawCart(){
+    document.querySelectorAll("#menuBox .menu button").forEach(bt => { const q = cart[bt.dataset.id]; let tag = bt.querySelector(".q"); if (q) { if(!tag){ tag=document.createElement("span"); tag.className="q"; bt.appendChild(tag); } tag.textContent="× "+q; } else if (tag) tag.remove(); });
+    const box = $("cartBox"); box.textContent = "";
+    const lines = data.addons.filter(a => cart[a.id]);
+    if (!lines.length) { const e=document.createElement("div"); e.className="note"; e.textContent="Nothing added yet."; box.appendChild(e); }
+    lines.forEach(a => {
+      const r=document.createElement("div"); r.className="cline";
+      const n=document.createElement("span"); n.textContent=a.name;
+      const st=document.createElement("span"); st.className="st";
+      const m=document.createElement("button"); m.type="button"; m.textContent="−"; m.onclick=()=>{ cart[a.id]--; if(cart[a.id]<=0) delete cart[a.id]; drawCart(); };
+      const q=document.createElement("b"); q.className="mono"; q.textContent=cart[a.id];
+      const p=document.createElement("button"); p.type="button"; p.textContent="+"; p.onclick=()=>{ cart[a.id]++; drawCart(); };
+      st.append(m,q,p);
+      const amt=document.createElement("b"); amt.className="mono"; amt.textContent=peso(cart[a.id]*a.price);
+      r.append(n,st,amt); box.appendChild(r);
+    });
+    const tot = cartTotal();
+    const tr=document.createElement("div"); tr.className="total"; tr.innerHTML='<span>Total</span><span class="amt mono"></span>'; tr.querySelector(".amt").textContent=peso(tot); box.appendChild(tr);
+    const tb = $("sheetTender"); tb.textContent = ""; sheetTender = null;
+    const save = $("sheetSave"), later = $("sheetLater");
+    later.hidden = !sheetGuest; later.disabled = !tot;
+    save.disabled = !tot; save.textContent = "Pay now";
+    if (tot) tb.appendChild(tenderBox(tot, t => { sheetTender = t; save.disabled = t === false; save.textContent = t > tot ? "Pay now · give " + peso(t - tot) + " change" : "Pay now"; }));
+  }
+  $("sheetX").onclick = closeSheet;
+  $("sheetBg").addEventListener("click", e => { if (e.target === $("sheetBg")) closeSheet(); });
+  async function saveSale(payLater){
+    const lines = Object.entries(cart).map(([id,qty]) => ({id, qty}));
+    const m = $("sheetMsg"); m.className="msg"; m.textContent="…"; $("sheetSave").disabled = true; $("sheetLater").disabled = true;
+    try {
+      const j = await post("/api/cashier/sale", {code: sheetGuest ? sheetGuest.code : null, lines, payLater, tendered: payLater ? null : (sheetTender || null)});
+      const who = sheetGuest ? sheetGuest.name : "";
+      closeSheet();
+      alertMsg(payLater ? "Added " + peso(j.total) + " to " + who + "'s bill." : "Paid " + peso(j.total) + (j.tendered ? ". Change: " + peso(j.change) : "") + ".", true); load();
+    } catch(e){ if (e.message==="login") return; m.className="msg err"; m.textContent=e.message; $("sheetSave").disabled=false; $("sheetLater").disabled=false; }
+  }
+  $("sheetSave").onclick = () => saveSale(false);
+  $("sheetLater").onclick = () => saveSale(true);
+  $("xOpen").onclick = () => openSheet(null);
+
+  // ================= SENIOR / PWD / KIDS =================
+  function discPreview(b){
+    const unit = b.price, sc = disc.seniors.length + disc.pwds.length;
+    const scUnit = Math.round((data.vatRegistered ? unit/1.12*0.8 : unit*0.8)*100)/100;
+    const adults = b.pax - sc - disc.kids - disc.free;
+    const total = Math.round(adults*unit + sc*scUnit + disc.kids*data.kidPrice);
+    return {adults, scUnit, total, balance: Math.max(0, total - b.deposit), less: b.pax*unit - total};
+  }
+  function discEditor(b){
+    const box = document.createElement("div"); box.className = "tender"; box.style.width = "100%";
+    const info = document.createElement("div"); info.className = "note";
+    info.textContent = "Senior & PWD: 20% off their own share" + (data.vatRegistered ? " (also VAT-exempt)" : "") + ". Kids ("+(data.kidRule||"kids")+"): "+peso(data.kidPrice)+". Free: "+(data.freeRule||"toddlers")+".";
+    box.appendChild(info);
+    const preview = document.createElement("div");
+    const refresh = () => {
+      const p = discPreview(b); preview.textContent = "";
+      const l = (k,v,bold)=>{ const d=document.createElement("div"); d.className="line"; const a=document.createElement("span"); a.textContent=k; const c=document.createElement(bold?"b":"span"); c.textContent=v; d.append(a,c); preview.appendChild(d); };
+      l("Regular ("+Math.max(p.adults,0)+")", peso(Math.max(p.adults,0)*b.price));
+      if (disc.seniors.length+disc.pwds.length) l("Senior/PWD ("+(disc.seniors.length+disc.pwds.length)+" × "+peso(p.scUnit)+")", peso((disc.seniors.length+disc.pwds.length)*p.scUnit));
+      if (disc.kids) l("Kids ("+disc.kids+" × "+peso(data.kidPrice)+")", peso(disc.kids*data.kidPrice));
+      if (disc.free) l("Free ("+disc.free+")", peso(0));
+      l("New total", peso(p.total), true); l("Less down payment", "−"+peso(b.deposit)); l("Balance to collect", peso(p.balance), true);
+      if (p.adults < 0) { const w=document.createElement("div"); w.className="change bad"; w.textContent="More than "+b.pax+" guests. Change guests first."; preview.appendChild(w); }
+      save.disabled = p.adults < 0;
+    };
+    const people = (key, label) => {
+      const wrap = document.createElement("div");
+      const head = document.createElement("div"); head.className="line";
+      const t = document.createElement("strong"); t.textContent = label + " (" + disc[key].length + ")";
+      const add = document.createElement("button"); add.type="button"; add.className="btn ghost sm"; add.textContent="+ Add " + label;
+      add.onclick = () => { disc[key].push({name:"",idNo:""}); render(); };
+      head.append(t, add); wrap.appendChild(head);
+      disc[key].forEach((p,i) => {
+        const r = document.createElement("div"); r.className="row"; r.style.gap="6px"; r.style.marginTop="6px";
+        const n = document.createElement("input"); n.placeholder="Full name"; n.value=p.name; n.style.flex="1 1 140px"; n.oninput=()=>{ p.name=n.value; };
+        const id = document.createElement("input"); id.placeholder=label+" ID no."; id.value=p.idNo; id.style.flex="1 1 120px"; id.oninput=()=>{ p.idNo=id.value; };
+        const x = document.createElement("button"); x.type="button"; x.className="btn ghost sm"; x.textContent="×"; x.setAttribute("aria-label","Remove"); x.onclick=()=>{ disc[key].splice(i,1); render(); };
+        r.append(n,id,x); wrap.appendChild(r);
+      });
+      return wrap;
+    };
+    const counter = (key, label) => {
+      const d = document.createElement("div"); d.className="line";
+      const t = document.createElement("strong"); t.textContent = label;
+      const st = document.createElement("span"); st.className="row"; st.style.gap="6px";
+      const m = document.createElement("button"); m.type="button"; m.className="btn ghost sm"; m.textContent="−"; m.onclick=()=>{ if(disc[key]>0){ disc[key]--; render(); } };
+      const v = document.createElement("b"); v.className="mono"; v.textContent = disc[key];
+      const p = document.createElement("button"); p.type="button"; p.className="btn ghost sm"; p.textContent="+"; p.onclick=()=>{ disc[key]++; render(); };
+      st.append(m,v,p); d.append(t,st); return d;
+    };
+    const save = document.createElement("button"); save.type="button"; save.className="btn big ok"; save.textContent="Save";
+    save.onclick = async () => {
+      save.disabled = true;
+      try { await post("/api/cashier/discount/"+encodeURIComponent(b.code), {seniors:disc.seniors, pwds:disc.pwds, kids:disc.kids, free:disc.free}); disc=null; load(); }
+      catch(e){ if(e.message!=="login"){ save.disabled=false; alertMsg(e.message); } }
+    };
+    const cancel = document.createElement("button"); cancel.type="button"; cancel.className="btn ghost"; cancel.textContent="Cancel"; cancel.onclick=()=>{ disc=null; render(); };
+    box.append(people("seniors","Senior"), people("pwds","PWD"), counter("kids","Kids ("+peso(data.kidPrice)+")"), counter("free","Free kids"), preview);
+    const row = document.createElement("div"); row.className="row"; row.append(save, cancel); box.appendChild(row);
+    refresh();
+    return box;
+  }
+
   function walkDue(){ return (parseInt($("wPax").value,10)||0) * (data ? data.price : 0); }
   function walkTotal(){
     const due = walkDue(); $("wTotal").textContent = peso(due);
-    const q = $("wQuick"); q.textContent = "";
-    if (due > 0) quickAmounts(due).forEach(v => { const b=document.createElement("button"); b.type="button"; b.textContent = v===due ? "Exact" : peso(v); b.onclick=()=>{ $("wTender").value=v; walkChange(); }; q.appendChild(b); });
-    walkChange();
+
   }
-  function walkChange(){
-    const due = walkDue(), t = Number($("wTender").value), cv = $("wChange");
-    if (!$("wTender").value) { cv.className="change"; cv.textContent="—"; return; }
-    if (t < due) { cv.className="change bad"; cv.textContent="Short by " + peso(due - t); return; }
-    cv.className="change"; cv.textContent = peso(t - due);
-  }
-  $("wPax").addEventListener("input", walkTotal); $("wTender").addEventListener("input", walkChange);
+  $("wPax").addEventListener("input", walkTotal);
   let forceWalk = false;
   $("wBtn").onclick = async () => {
     const m=$("wMsg"); m.className="msg"; m.textContent="…";
     try {
-      const j = await post("/api/cashier/walkin", {name:$("wName").value, pax:$("wPax").value, force:forceWalk, tendered:$("wTender").value});
-      m.className="msg ok"; m.textContent="Added. Collected " + peso(j.total) + " cash" + (j.tendered ? ". Change: " + peso(j.change) : "") + "."; $("wName").value=""; $("wPax").value=2; $("wTender").value=""; forceWalk=false; $("wBtn").textContent="Add walk-in & collect"; load();
+      const j = await post("/api/cashier/walkin", {name:$("wName").value, pax:$("wPax").value, force:forceWalk});
+      m.className="msg ok"; m.textContent="Added to the guest list. Tap Collect on their name."; $("q").value=j.code; $("wName").value=""; $("wPax").value=2; forceWalk=false; $("wBtn").textContent="Add walk-in"; await load();
     } catch(e){
       if(e.message==="login") return;
       m.className="msg err"; m.textContent=e.message;
       if (e.data && e.data.full) { forceWalk = true; $("wBtn").textContent = "Add anyway (over capacity)"; }
     }
   };
-  $("chips").onclick = e => { if (e.target.tagName==="BUTTON") { $("xDesc").value = e.target.textContent; $("xAmt").focus(); } };
+
   $("xBtn").onclick = async () => {
     const m=$("xMsg"); m.className="msg"; m.textContent="…";
     try { await post("/api/cashier/extra", {description:$("xDesc").value, amount:$("xAmt").value}); m.className="msg ok"; m.textContent="Sale added."; $("xDesc").value=""; $("xAmt").value=""; load(); }
@@ -360,6 +522,13 @@
     zLine(w,"Cash: booking balances",peso(r.payments.cashBalances)); zLine(w,"Cash: walk-ins",peso(r.payments.cashWalkIns)); zLine(w,"Cash: extra sales",peso(r.payments.cashExtras));
     zLine(w,"TOTAL CASH SALES",peso(r.payments.cashTotal),true);
     if (r.uncollected) zLine(w,"Not collected yet",peso(r.uncollected));
+    if (r.unpaidBills) zLine(w,"Unpaid bills (items)",peso(r.unpaidBills));
+    if (r.discounts && (r.discounts.amount || r.discounts.kids || r.discounts.free)) {
+      hr(); zLine(w,"DISCOUNTS","",true);
+      zLine(w,"Senior guests",r.discounts.seniors); zLine(w,"PWD guests",r.discounts.pwds); zLine(w,"Kids price",r.discounts.kids); zLine(w,"Free kids",r.discounts.free);
+      zLine(w,"Total discounts",peso(r.discounts.amount),true);
+      (r.discounts.list||[]).forEach(p => zLine(w, p.type+": "+p.name, "ID "+p.idNo));
+    }
     if (r.extrasList && r.extrasList.length) { hr(); zLine(w,"EXTRA SALES","",true); r.extrasList.forEach(x=>zLine(w,x.description,peso(x.amount))); }
     hr(); zLine(w,"CASH DRAWER","",true);
     zLine(w,"Starting cash (float)",peso(z.openingFloat)); zLine(w,"+ Cash sales",peso(r.payments.cashTotal));
@@ -401,7 +570,7 @@
   };
 
   fetch("/api/cashier/me").then(r=>r.json()).then(j=>{ if(j.loggedIn){ showApp(); load(); } else showLogin(); }).catch(showLogin);
-  setInterval(()=>{ if(!$("app").hidden && !confirmCode && !paxEdit && !zOpen) load(); }, 30000);
+  setInterval(()=>{ if(!$("app").hidden && !confirmCode && !paxEdit && !zOpen && !billPay && !disc) load(); }, 30000);
 })();
 </script>
 </body>

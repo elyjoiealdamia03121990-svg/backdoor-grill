@@ -78,6 +78,7 @@
           <li>The down payment is non-refundable. If you cannot make it, we keep it to cover your reserved seats.</li>
           <li>You can change your date <b id="movesTxt">once</b> yourself under “Check my booking”, before the cut-off of your booked night, if seats are available.</li>
           <li>Arrive by 6:00 PM. Last call for the grill is 8:15 PM; we close at 8:30 PM.</li>
+          <li>Kids price (<span id="kidTxt">kids</span>) and the 20% Senior/PWD discount are applied at the venue. Please bring a valid ID. <span id="freeTxt"></span></li>
           <li>Excessive leftovers are charged.</li>
         </ul>
         <label class="check"><input type="checkbox" id="fAgree"><span>I have read and agree to the rules. I understand the down payment is <b>non-refundable</b>.</span></label>
@@ -141,7 +142,7 @@
     paint();
   }
   function paint(){
-    $("hPrice").textContent = cfg.price; $("hTime").textContent = cfg.timeLabel; $("hDep").textContent = cfg.depositPct + "%"; $("movesTxt").textContent = cfg.maxMoves==1?"once":cfg.maxMoves==2?"twice":(cfg.maxMoves||0)+" times";
+    $("hPrice").textContent = cfg.price; $("hTime").textContent = cfg.timeLabel; $("hDep").textContent = cfg.depositPct + "%"; $("kidTxt").textContent = (cfg.kidRule||"kids")+": ₱"+(cfg.kidPrice??199); $("freeTxt").textContent = cfg.freeRule ? cfg.freeRule+" eat free." : ""; $("movesTxt").textContent = cfg.maxMoves==1?"once":cfg.maxMoves==2?"twice":(cfg.maxMoves||0)+" times";
     $("hCut").textContent = hourLabel(cfg.cutoffHour) + (cfg.cutoffDaysBefore ? " the day before" : " on the day itself");
     $("pName").textContent = cfg.gcashName; $("pNum").textContent = cfg.gcashNumber;
     const el = $("days"); el.textContent = "";

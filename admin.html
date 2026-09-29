@@ -82,6 +82,7 @@ h3{font-size:16px}
       <button data-t="bookings" aria-selected="true">Bookings</button>
       <button data-t="prep" aria-selected="false">Prep &amp; shopping list</button>
       <button data-t="inventory" aria-selected="false">Inventory</button>
+      <button data-t="addons" aria-selected="false">Add-on menu</button>
       <button data-t="purchases" aria-selected="false">Purchases</button>
       <button data-t="money" aria-selected="false">Expenses &amp; income</button>
       <button data-t="reports" aria-selected="false">P&amp;L &amp; cash flow</button>
@@ -192,6 +193,27 @@ h3{font-size:16px}
       </section>
     </div>
 
+    <!-- ADD-ON MENU -->
+    <div data-p="addons" hidden>
+      <section class="block">
+        <h2>Add-on menu</h2>
+        <p class="sub">Drinks and extras the cashier can sell or put on a guest's bill. Link an item to your inventory to deduct stock automatically when sold.</p>
+        <div class="tblwrap"><table class="t" id="adTbl"></table></div>
+      </section>
+      <section class="block">
+        <h2 id="adFormTitle">Add a menu item</h2>
+        <div class="formgrid" id="adForm">
+          <label class="f">Name<input id="adName" placeholder="Soft drink (can)"></label>
+          <label class="f">Group<select id="adCat"></select></label>
+          <label class="f">Selling price (₱)<input id="adPrice" type="number" min="0" step="0.01"></label>
+          <label class="f">Deduct from inventory <span class="h">optional</span><select id="adItem"></select></label>
+          <label class="f">Qty used per sale<input id="adQty" type="number" min="0" step="0.001" placeholder="1"></label>
+          <label class="f" style="flex-direction:row;align-items:center;gap:8px"><input id="adActive" type="checkbox" checked style="width:auto"> Show to cashier</label>
+        </div>
+        <div class="row" style="margin-top:10px"><button class="btn" id="adSave">Add to menu</button><button class="btn ghost" id="adCancel" hidden>Cancel edit</button><span class="msg" id="adMsg" style="margin:0"></span></div>
+      </section>
+    </div>
+
     <!-- PURCHASES -->
     <div data-p="purchases" hidden>
       <section class="block">
@@ -294,6 +316,10 @@ h3{font-size:16px}
         <div class="fields">
           <label class="f">Price per person (₱)<input id="sPrice" type="number" min="1"></label>
           <label class="f">Down payment (% of total)<input id="sDep" type="number" min="0" max="100"></label>
+          <label class="f">Kids price (₱)<input id="sKid" type="number" min="0"></label>
+          <label class="f">Who counts as kids<input id="sKidRule" placeholder="Kids 4–10 years old"></label>
+          <label class="f">Who eats free<input id="sFreeRule" placeholder="3 years old and below"></label>
+          <label class="f" style="flex-direction:row;align-items:center;gap:8px"><input id="sVat" type="checkbox" style="width:auto"> VAT registered (Senior/PWD also VAT-exempt)</label>
           <label class="f">Moves allowed per booking <span class="h">0 = no moving</span><input id="sMoves" type="number" min="0" max="10"></label>
           <label class="f">Max guests per night<input id="sCap" type="number" min="1"></label>
           <label class="f">Max guests per booking<input id="sMaxPax" type="number" min="1"></label>
@@ -567,6 +593,43 @@ h3{font-size:16px}
   }
   $("mMonth").onchange=()=>loadMoves().catch(()=>{});
 
+  // ================= ADD-ON MENU =================
+  let adEdit = null, adCats = [];
+  LOADERS.addons = async () => {
+    try {
+      await ensureItems(true);
+      const d = await api("/api/admin/addons"); adCats = d.categories;
+      if (!$("adCat").options.length) adCats.forEach(c => $("adCat").appendChild(el("option",{value:c,text:c})));
+      const sel = $("adItem"); const keep = sel.value; sel.textContent = "";
+      sel.appendChild(el("option",{value:"",text:"— don't track —"}));
+      ITEMS.filter(i=>i.kind==="consumable").forEach(i => sel.appendChild(el("option",{value:String(i.id),text:i.name+" ("+i.unit+")"})));
+      sel.value = keep;
+      const t = $("adTbl"); t.textContent = "";
+      t.appendChild(el("tr",{}, el("th",{text:"Item"}), el("th",{text:"Group"}), el("th",{class:"n",text:"Price"}), el("th",{text:"Deducts from stock"}), el("th",{class:"n",text:"Est. cost"}), el("th",{class:"n",text:"Margin"}), el("th",{text:"Shown"}), el("th",{})));
+      if (!d.rows.length) t.appendChild(el("tr",{}, el("td",{colspan:8,class:"note",text:"No menu items yet. Add your first one below."})));
+      d.rows.forEach(a => {
+        const cost = a.itemId ? a.itemQty * (a.itemCost||0) : null;
+        t.appendChild(el("tr",{}, el("td",{text:a.name}), el("td",{text:a.category}), el("td",{class:"n",text:peso(a.price)}),
+          el("td",{text:a.itemId ? qty(a.itemQty)+" "+a.itemUnit+" "+a.itemName : "—"}),
+          el("td",{class:"n",text:cost!==null?peso(Math.round(cost*100)/100):"—"}),
+          el("td",{class:"n",text:cost!==null && a.price ? Math.round((a.price-cost)/a.price*100)+"%" : "—"}),
+          el("td",{text:a.active?"Yes":"Hidden"}),
+          el("td",{class:"n"}, el("button",{class:"btn ghost sm",text:"Edit",onclick:()=>editAddon(a)}), " ",
+            el("button",{class:"btn ghost sm",text:"Delete",onclick:async ev=>{ ev.target.disabled=true; await send("DELETE","/api/admin/addons/"+a.id).catch(()=>{}); LOADERS.addons(); }}))));
+      });
+    } catch(e){}
+  };
+  function editAddon(a){
+    adEdit = a.id; $("adName").value=a.name; $("adCat").value=a.category; $("adPrice").value=a.price; $("adItem").value=a.itemId?String(a.itemId):""; $("adQty").value=a.itemQty||""; $("adActive").checked=a.active;
+    $("adFormTitle").textContent="Edit menu item"; $("adSave").textContent="Save changes"; $("adCancel").hidden=false; $("adForm").scrollIntoView({behavior:"smooth",block:"center"});
+  }
+  function resetAddon(){ adEdit=null; ["adName","adPrice","adQty"].forEach(id=>$(id).value=""); $("adItem").value=""; $("adActive").checked=true; $("adFormTitle").textContent="Add a menu item"; $("adSave").textContent="Add to menu"; $("adCancel").hidden=true; }
+  $("adCancel").onclick = resetAddon;
+  $("adSave").onclick = async () => {
+    const body = {name:$("adName").value, category:$("adCat").value, price:$("adPrice").value, itemId:$("adItem").value||null, itemQty:$("adItem").value ? ($("adQty").value||1) : 0, active:$("adActive").checked};
+    try { await send(adEdit?"PUT":"POST", "/api/admin/addons"+(adEdit?"/"+adEdit:""), body); flash("adMsg",true,"Saved."); resetAddon(); LOADERS.addons(); } catch(e){ fail("adMsg")(e); }
+  };
+
   // ================= PURCHASES =================
   let buLines=[{}];
   LOADERS.purchases = async () => { try { await ensureItems(); renderBuy(); await loadPurchases(); } catch(e){} };
@@ -685,7 +748,7 @@ h3{font-size:16px}
   // ================= SETTINGS =================
   LOADERS.settings = async () => { try { const d=await api("/api/admin/bookings?date="+TODAY); fillSettings(d.config); } catch(e){} };
   function fillSettings(c){
-    $("sPrice").value=c.price; $("sDep").value=c.depositPct; $("sMoves").value=c.maxMoves??1; $("sCap").value=c.capacity; $("sMaxPax").value=c.maxPax; $("sDays").value=c.daysAhead;
+    $("sPrice").value=c.price; $("sDep").value=c.depositPct; $("sMoves").value=c.maxMoves??1; $("sKid").value=c.kidPrice??199; $("sKidRule").value=c.kidRule||""; $("sFreeRule").value=c.freeRule||""; $("sVat").checked=!!c.vatRegistered; $("sCap").value=c.capacity; $("sMaxPax").value=c.maxPax; $("sDays").value=c.daysAhead;
     $("sCutHour").value=c.cutoffHour; $("sCutDay").value=c.cutoffDaysBefore; $("sGName").value=c.gcashName; $("sGNum").value=c.gcashNumber;
     $("sTime").value=c.timeLabel; $("sPin").value=c.cashierPin||""; $("sClosed").value=(c.closedDates||[]).join(", ");
     DOW.forEach((_,i)=>$("sOpen"+i).checked=c.openDays.includes(i));
@@ -694,7 +757,7 @@ h3{font-size:16px}
     const pin=$("sPin").value.trim();
     if(pin && !/^\d{4,8}$/.test(pin)) return flash("sMsg",false,"Cashier PIN must be 4 to 8 digits.");
     try{
-      const j=await send("PUT","/api/admin/config",{price:$("sPrice").value,depositPct:$("sDep").value,maxMoves:$("sMoves").value,capacity:$("sCap").value,maxPax:$("sMaxPax").value,daysAhead:$("sDays").value,
+      const j=await send("PUT","/api/admin/config",{price:$("sPrice").value,depositPct:$("sDep").value,maxMoves:$("sMoves").value,kidPrice:$("sKid").value,kidRule:$("sKidRule").value,freeRule:$("sFreeRule").value,vatRegistered:$("sVat").checked,capacity:$("sCap").value,maxPax:$("sMaxPax").value,daysAhead:$("sDays").value,
         cutoffHour:$("sCutHour").value,cutoffDaysBefore:$("sCutDay").value,gcashName:$("sGName").value,gcashNumber:$("sGNum").value,timeLabel:$("sTime").value,cashierPin:pin,
         closedDates:$("sClosed").value.split(",").map(s=>s.trim()).filter(Boolean),openDays:DOW.map((_,i)=>i).filter(i=>$("sOpen"+i).checked)});
       fillSettings(j.config); flash("sMsg",true,"Saved.");

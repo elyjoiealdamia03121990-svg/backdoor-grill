@@ -90,7 +90,25 @@ module.exports = function makeBackoffice(pool, { todayManila, addDays, isValidDa
       CREATE TABLE IF NOT EXISTS alerts (
         id SERIAL PRIMARY KEY, type TEXT NOT NULL, message TEXT NOT NULL, code TEXT, date TEXT,
         seen BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+      CREATE TABLE IF NOT EXISTS addons (
+        id SERIAL PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'Drinks', price NUMERIC NOT NULL,
+        item_id INT REFERENCES items(id), item_qty NUMERIC NOT NULL DEFAULT 0, active BOOLEAN NOT NULL DEFAULT true,
+        sort INT NOT NULL DEFAULT 0);
+      ALTER TABLE other_income ADD COLUMN IF NOT EXISTS code TEXT;
+      ALTER TABLE other_income ADD COLUMN IF NOT EXISTS items JSONB;
+      ALTER TABLE other_income ADD COLUMN IF NOT EXISTS tendered NUMERIC;
+      ALTER TABLE other_income ADD COLUMN IF NOT EXISTS change_given NUMERIC;
+      ALTER TABLE other_income ADD COLUMN IF NOT EXISTS paid BOOLEAN NOT NULL DEFAULT true;
+      ALTER TABLE other_income ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
     `);
+    const ac = await pool.query("SELECT COUNT(*)::int AS n FROM addons");
+    if (ac.rows[0].n === 0) {
+      // Starter menu: prices are placeholders; the owner sets real prices in Back office → Add-on menu.
+      const START = [["Soft drink (can)", "Drinks", 60], ["Bottled water", "Drinks", 25], ["Beer (San Miguel)", "Drinks", 80],
+        ["Soju (bottle)", "Drinks", 180], ["Extra cheese", "Add-ons", 50], ["Leftover charge (per 100g)", "Charges", 100]];
+      for (const [i, [name, category, price]] of START.entries())
+        await pool.query("INSERT INTO addons(name, category, price, sort) VALUES ($1,$2,$3,$4)", [name, category, price, i]);
+    }
     const c = await pool.query("SELECT COUNT(*)::int AS n FROM items");
     if (c.rows[0].n === 0) {
       for (const [name, category, kind, unit, per_head, need_qty, cost] of SEED)
@@ -144,7 +162,7 @@ module.exports = function makeBackoffice(pool, { todayManila, addDays, isValidDa
          AND to_char(created_at AT TIME ZONE 'Asia/Manila','YYYY-MM-DD') BETWEEN $1 AND $2 GROUP BY 1`, [from, to]),
       q(`SELECT COALESCE(arrived_on, date) AS date, SUM(balance)::float AS amt FROM bookings
          WHERE status='arrived' AND COALESCE(arrived_on, date) BETWEEN $1 AND $2 GROUP BY 1`, [from, to]),
-      q(`SELECT date, SUM(amount)::float AS amt FROM other_income WHERE date BETWEEN $1 AND $2 GROUP BY 1`, [from, to]),
+      q(`SELECT date, SUM(amount)::float AS amt FROM other_income WHERE paid AND date BETWEEN $1 AND $2 GROUP BY 1`, [from, to]),
       q(`SELECT date, SUM(CASE WHEN type='in' THEN amount ELSE 0 END)::float AS cin, SUM(CASE WHEN type='out' THEN amount ELSE 0 END)::float AS cout
          FROM capital WHERE date BETWEEN $1 AND $2 GROUP BY 1`, [from, to]),
       q(`SELECT date, SUM(total)::float AS amt FROM purchases WHERE date BETWEEN $1 AND $2 GROUP BY 1`, [from, to]),
@@ -179,6 +197,31 @@ module.exports = function makeBackoffice(pool, { todayManila, addDays, isValidDa
     A("post", "alerts/seen", async (req, res) => { await pool.query("UPDATE alerts SET seen = true WHERE NOT seen"); res.json({ ok: true }); });
     // Keep the table small
     pool.query("DELETE FROM alerts WHERE created_at < now() - interval '90 days'").catch(() => {});
+
+    // ---- Add-on menu (drinks, extras, charges the cashier can sell) ----
+    const ADDON_CATS = ["Drinks", "Add-ons", "Charges", "Others"];
+    A("get", "addons", async (req, res) => {
+      const r = await pool.query(`SELECT a.id, a.name, a.category, a.price::float, a.item_id AS "itemId", a.item_qty::float AS "itemQty", a.active, a.sort,
+        i.name AS "itemName", i.unit AS "itemUnit", i.cost::float AS "itemCost" FROM addons a LEFT JOIN items i ON i.id = a.item_id
+        ORDER BY array_position($1::text[], a.category), a.sort, a.name`, [ADDON_CATS]);
+      res.json({ rows: r.rows, categories: ADDON_CATS });
+    });
+    const addonBody = b => ({
+      name: str(b.name, 60), category: ADDON_CATS.includes(b.category) ? b.category : "Others", price: Math.max(0, num(b.price)),
+      itemId: parseInt(b.itemId, 10) || null, itemQty: Math.max(0, num(b.itemQty)), active: b.active !== false,
+    });
+    A("post", "addons", async (req, res) => {
+      const a = addonBody(req.body || {}); if (!a.name) return bad(res, "Enter the item name."); if (!(a.price > 0)) return bad(res, "Enter the selling price.");
+      await pool.query("INSERT INTO addons(name, category, price, item_id, item_qty, active) VALUES ($1,$2,$3,$4,$5,$6)", [a.name, a.category, a.price, a.itemId, a.itemQty, a.active]);
+      res.json({ ok: true });
+    });
+    A("put", "addons/:id", async (req, res) => {
+      const a = addonBody(req.body || {}); if (!a.name) return bad(res, "Enter the item name."); if (!(a.price > 0)) return bad(res, "Enter the selling price.");
+      await pool.query("UPDATE addons SET name=$1, category=$2, price=$3, item_id=$4, item_qty=$5, active=$6 WHERE id=$7",
+        [a.name, a.category, a.price, a.itemId, a.itemQty, a.active, parseInt(req.params.id, 10)]);
+      res.json({ ok: true });
+    });
+    A("delete", "addons/:id", async (req, res) => { await pool.query("DELETE FROM addons WHERE id=$1", [parseInt(req.params.id, 10)]); res.json({ ok: true }); });
 
     A("get", "meta", async (req, res) => res.json({ categories: CATEGORIES, expenseCategories: EXPENSE_CATS, today: todayManila() }));
 
@@ -316,7 +359,11 @@ module.exports = function makeBackoffice(pool, { todayManila, addDays, isValidDa
           [date, amount, ...Object.values(v)]);
         res.json({ ok: true });
       });
-      A("delete", path + "/:id", async (req, res) => { await pool.query(`DELETE FROM ${table} WHERE id=$1`, [parseInt(req.params.id, 10)]); res.json({ ok: true }); });
+      A("delete", path + "/:id", async (req, res) => {
+        const id = parseInt(req.params.id, 10);
+        if (table === "other_income") await pool.query("DELETE FROM stock_moves WHERE note = $1", ["sale#" + id]);
+        await pool.query(`DELETE FROM ${table} WHERE id=$1`, [id]); res.json({ ok: true });
+      });
     };
     ledger("expenses", "expenses", ["category", "description"], b =>
       EXPENSE_CATS.includes(b.category) ? { category: b.category, description: str(b.description, 120) } : "Choose an expense category.");
