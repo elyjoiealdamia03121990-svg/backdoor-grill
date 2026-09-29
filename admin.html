@@ -276,6 +276,11 @@ h3{font-size:16px}
         <section class="block" style="margin:0"><h2>Cash flow</h2><div class="pl" id="cfBox"></div><p class="kicker">Down payments count on the day they were verified; balances on the night guests arrived.</p></section>
       </div>
       <section class="block" style="margin-top:16px">
+        <h2>Z readings (nights closed by the cashier)</h2>
+        <p class="sub">Cash counted vs expected each night. Reopen a night only if the cashier needs to fix something, then ask them to close it again.</p>
+        <div class="tblwrap"><table class="t" id="zTbl"></table></div>
+      </section>
+      <section class="block" style="margin-top:16px">
         <h2>Daily cash</h2>
         <div class="tblwrap"><table class="t" id="cfTbl"></table></div>
       </section>
@@ -660,6 +665,19 @@ h3{font-size:16px}
         el("td",{class:"n "+(x.net<0?"neg":"pos"),text:peso(x.net)}), el("td",{class:"n",text:peso(x.balance)}))));
     }catch(e){}
   };
+  async function loadZ(){
+    const d = await api("/api/admin/zreadings"); const t=$("zTbl"); t.textContent="";
+    t.appendChild(el("tr",{}, ...["Z no.","Night","Guests","Gross sales","Cash sales","Expected","Counted","Over / short",""].map((x,i)=>el("th",{class:i>1&&i<8?"n":"",text:x}))));
+    if(!d.rows.length) t.appendChild(el("tr",{}, el("td",{colspan:9,class:"note",text:"No nights closed yet. The cashier closes each night with the Z reading button."})));
+    d.rows.forEach(z=>{ const r=z.report;
+      t.appendChild(el("tr",{}, el("td",{class:"mono",text:"Z-"+String(z.id).padStart(4,"0")}), el("td",{text:niceDate(z.date)}),
+        el("td",{class:"n",text:r.guests.arrived+r.guests.walkIn}), el("td",{class:"n",text:peso(r.sales.gross)}), el("td",{class:"n",text:peso(r.payments.cashTotal)}),
+        el("td",{class:"n",text:peso(z.expected)}), el("td",{class:"n",text:peso(z.counted)}),
+        el("td",{class:"n "+(z.overShort<0?"neg":z.overShort>0?"":"pos"),text:(z.overShort<0?"Short ":z.overShort>0?"Over ":"OK ")+peso(Math.abs(z.overShort))}),
+        el("td",{class:"n"}, el("button",{class:"btn ghost sm",text:"Reopen",onclick:async ev=>{ ev.target.disabled=true; await send("DELETE","/api/admin/zreadings/"+z.id).catch(()=>{}); loadZ(); }}))));
+    });
+  }
+  const _rep = LOADERS.reports; LOADERS.reports = async () => { await _rep(); loadZ().catch(()=>{}); };
   $("rFrom").onchange=LOADERS.reports; $("rTo").onchange=LOADERS.reports;
   $("rThis").onclick=()=>{ const m=monthBounds(TODAY.slice(0,7)); $("rFrom").value=m.from; $("rTo").value=m.to; LOADERS.reports(); };
   $("rLast").onclick=()=>{ const m=monthBounds(addDays(TODAY.slice(0,8)+"01",-1).slice(0,7)); $("rFrom").value=m.from; $("rTo").value=m.to; LOADERS.reports(); };
@@ -685,7 +703,7 @@ h3{font-size:16px}
 
   // ================= ALERTS =================
   let lastAlertId = null;
-  const TAG = {new:"New booking", moved:"Date changed", guests:"Guests changed"};
+  const TAG = {new:"New booking", moved:"Date changed", guests:"Guests changed", z:"Night closed"};
   async function loadAlerts(first){
     let d; try { d = await api("/api/admin/alerts"); } catch(e){ return; }
     $("bellCount").textContent = d.unseen; $("bellCount").hidden = !d.unseen;

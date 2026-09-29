@@ -28,6 +28,32 @@
 .xrow{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:15px}
 .cols{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;align-items:start}
 @media (max-width:820px){.cols{grid-template-columns:1fr}}
+.tender{grid-column:1/-1;display:flex;flex-direction:column;gap:10px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px}
+.tender .line{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:16px}
+.tender .line b{font-family:var(--mono);font-size:20px}
+.tender input{font-size:22px;font-family:var(--mono);padding:10px 12px}
+.quick{display:flex;flex-wrap:wrap;gap:6px}
+.quick button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:8px 12px;font:600 15px var(--mono);cursor:pointer}
+.change{font-family:var(--display);font-size:30px;color:var(--good)}
+.change.bad{color:var(--bad);font-family:var(--body);font-size:15px;font-weight:600}
+.zbar{display:flex;justify-content:flex-end;margin-bottom:12px}
+.denoms{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.denoms label{display:grid;grid-template-columns:62px 1fr;align-items:center;gap:8px;font:600 14px var(--mono)}
+.denoms input{padding:7px 9px;font-family:var(--mono)}
+.zr{font-family:var(--mono);font-size:14px;max-width:420px;margin:0 auto;background:#fff;color:#111;padding:18px;border-radius:6px}
+.zr h3{text-align:center;margin:0 0 2px;font-size:18px}
+.zr .c{text-align:center}
+.zr .ln{display:flex;justify-content:space-between;gap:10px;padding:2px 0}
+.zr .ln.b{font-weight:700}
+.zr hr{border:0;border-top:1px dashed #111;margin:8px 0}
+.closedban{background:var(--info-bg);color:var(--info);border-radius:8px;padding:12px 14px;margin-bottom:12px;font-weight:600}
+@media print{
+  body{background:#fff !important}
+  body *{visibility:hidden}
+  #zPrint,#zPrint *{visibility:visible}
+  #zPrint{position:absolute;left:0;top:0;width:100%}
+  .zr{max-width:none;padding:0;border-radius:0}
+}
 </style>
 </head>
 <body>
@@ -50,6 +76,27 @@
   </section>
 
   <div id="app" hidden>
+    <div class="zbar" style="margin-top:14px"><button class="btn ghost" id="zOpen">End of night: X / Z reading</button></div>
+    <div class="closedban" id="closedBan" hidden>Tonight is closed. The Z reading is done, so no more payments can be recorded.</div>
+    <section class="block" id="zBox" hidden>
+      <div class="row" style="justify-content:space-between;margin-bottom:8px"><h2 id="zTitle">X reading (not closed yet)</h2><button class="btn ghost sm" id="zClose">Close</button></div>
+      <div id="zCountArea">
+        <p class="sub">Count the cash in the drawer. Enter the starting cash (float) and how many of each bill/coin you have.</p>
+        <div class="fields" style="margin-bottom:10px">
+          <label class="f">Starting cash / float (₱)<input id="zFloat" type="number" min="0" inputmode="decimal" value="0"></label>
+          <div class="f">Cash counted<div class="mono" style="font-size:24px;font-weight:600" id="zCounted">₱0</div></div>
+        </div>
+        <div class="denoms" id="zDenoms"></div>
+        <div class="tender" style="margin-top:12px">
+          <div class="line"><span>Expected cash in drawer</span><b id="zExpected">₱0</b></div>
+          <div class="line"><span>Counted</span><b id="zCounted2">₱0</b></div>
+          <div class="line"><span>Over / short</span><b id="zOS">₱0</b></div>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn big" id="zDo">Close the night (Z reading)</button><span class="msg" id="zMsg" style="margin:0"></span></div>
+      </div>
+      <div id="zPrint" style="margin-top:14px"></div>
+      <div class="row" style="margin-top:12px;justify-content:center"><button class="btn ghost" id="zPrintBtn">Print</button></div>
+    </section>
     <div class="cash-top">
       <div class="tile"><div class="k">Guests expected</div><div class="v" id="sExpected">0</div></div>
       <div class="tile"><div class="k">Guests arrived</div><div class="v" id="sArrived">0</div></div>
@@ -73,6 +120,11 @@
             <label class="f">Guests<input id="wPax" type="number" min="1" value="2" inputmode="numeric"></label>
           </div>
           <div class="total"><span>Collect cash</span><span class="amt mono" id="wTotal">₱0</span></div>
+          <div class="tender" style="margin-top:10px">
+            <label class="f">Cash received (₱)<input id="wTender" type="number" min="0" inputmode="decimal" placeholder="0"></label>
+            <div class="quick" id="wQuick"></div>
+            <div class="line"><span>Change</span><span class="change" id="wChange">₱0</span></div>
+          </div>
           <div class="row" style="margin-top:10px"><button class="btn big" id="wBtn">Add walk-in &amp; collect</button></div>
           <div class="msg" id="wMsg" role="status"></div>
         </section>
@@ -103,7 +155,24 @@
   const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const niceDate = s => { const [y,m,d]=s.split("-").map(Number); return DOW[new Date(Date.UTC(y,m-1,d)).getUTCDay()]+", "+MON[m-1]+" "+d; };
-  let data = null, confirmCode = null, paxEdit = null;
+  // Suggested bills a guest is likely to hand over: exact, then rounded up to 100 / 500 / 1000.
+  const quickAmounts = due => [...new Set([due, Math.ceil(due/100)*100, Math.ceil(due/500)*500, Math.ceil(due/1000)*1000, Math.ceil(due/1000)*1000+1000])].filter(v=>v>=due).slice(0,5);
+  function tenderBox(due, onChange){
+    const box = document.createElement("div"); box.className = "tender";
+    const l1 = document.createElement("div"); l1.className="line"; l1.innerHTML="<span>Amount due</span><b></b>"; l1.querySelector("b").textContent = peso(due);
+    const lab = document.createElement("label"); lab.className="f"; lab.textContent="Cash received (₱)";
+    const inp = document.createElement("input"); inp.type="number"; inp.min="0"; inp.inputMode="decimal"; inp.placeholder="0"; lab.appendChild(inp);
+    const q = document.createElement("div"); q.className="quick";
+    const l2 = document.createElement("div"); l2.className="line"; const cs=document.createElement("span"); cs.textContent="Change"; const cv=document.createElement("span"); cv.className="change"; l2.append(cs,cv);
+    const upd = () => { const t = Number(inp.value); if (!inp.value) { cv.className="change"; cv.textContent="—"; onChange(null); return; }
+      if (t < due) { cv.className="change bad"; cv.textContent="Short by " + peso(due - t); onChange(false); return; }
+      cv.className="change"; cv.textContent=peso(t - due); onChange(t); };
+    quickAmounts(due).forEach(v => { const b=document.createElement("button"); b.type="button"; b.textContent = v===due ? "Exact" : peso(v); b.onclick=()=>{ inp.value=v; upd(); }; q.appendChild(b); });
+    inp.addEventListener("input", upd); box.append(l1, lab, q, l2); upd();
+    setTimeout(()=>inp.focus(), 50);
+    return box;
+  }
+  let data = null, confirmCode = null, paxEdit = null, zOpen = false;
 
   async function api(url, opts){
     const r = await fetch(url, opts);
@@ -129,6 +198,8 @@
 
   function render(){
     $("tDate").textContent = niceDate(data.date); $("tTime").textContent = data.timeLabel;
+    $("closedBan").hidden = !data.closed;
+    ["wBtn","xBtn"].forEach(id => $(id).disabled = !!data.closed);
     const B = data.bookings;
     const expected = B.filter(b=>b.status!=="noshow").reduce((s,b)=>s+b.pax,0);
     const arrived = B.filter(b=>b.status==="arrived");
@@ -180,8 +251,10 @@
         btn("Cancel", "ghost", () => { paxEdit = null; render(); });
       } else if (b.status === "confirmed") {
         if (confirmCode === b.code) {
-          const t=document.createElement("strong"); t.textContent="Received " + peso(b.balance) + " cash?"; act.appendChild(t);
-          btn("Yes, received", "big ok", () => checkin(b.code, "arrived"));
+          let tender = null;
+          const ok = btn("Confirm payment", "big ok", () => checkin(b.code, "arrived", tender));
+          ok.disabled = true;
+          act.insertBefore(tenderBox(b.balance, t => { tender = t; ok.disabled = !(t > 0); ok.textContent = t > 0 ? (t > b.balance ? "Confirm · give " + peso(t - b.balance) + " change" : "Confirm payment") : "Confirm payment"; }), ok);
           btn("Back", "ghost", () => { confirmCode=null; render(); });
         } else {
           btn("Collect " + peso(b.balance) + " cash", "big", () => { confirmCode=b.code; render(); });
@@ -210,21 +283,33 @@
     walkTotal();
   }
 
-  async function checkin(code, action){
+  async function checkin(code, action, tendered){
     confirmCode = null;
-    try { await post("/api/cashier/checkin/"+encodeURIComponent(code), {action}); } catch(e){ if(e.message!=="login") alertMsg(e.message); }
+    try { await post("/api/cashier/checkin/"+encodeURIComponent(code), {action, tendered}); if (tendered) alertMsg("Paid. Change: " + peso(tendered - (data.bookings.find(b=>b.code===code)||{balance:tendered}).balance), true); } catch(e){ if(e.message!=="login") alertMsg(e.message); }
     load();
   }
   function alertMsg(t, ok){ const e=document.createElement("div"); e.className="banner"; if(ok){ e.style.background="var(--good-bg)"; e.style.color="var(--good)"; } e.textContent=t; $("list").prepend(e); setTimeout(()=>e.remove(), 5000); }
 
-  function walkTotal(){ $("wTotal").textContent = peso((parseInt($("wPax").value,10)||0) * (data ? data.price : 0)); }
-  $("wPax").addEventListener("input", walkTotal);
+  function walkDue(){ return (parseInt($("wPax").value,10)||0) * (data ? data.price : 0); }
+  function walkTotal(){
+    const due = walkDue(); $("wTotal").textContent = peso(due);
+    const q = $("wQuick"); q.textContent = "";
+    if (due > 0) quickAmounts(due).forEach(v => { const b=document.createElement("button"); b.type="button"; b.textContent = v===due ? "Exact" : peso(v); b.onclick=()=>{ $("wTender").value=v; walkChange(); }; q.appendChild(b); });
+    walkChange();
+  }
+  function walkChange(){
+    const due = walkDue(), t = Number($("wTender").value), cv = $("wChange");
+    if (!$("wTender").value) { cv.className="change"; cv.textContent="—"; return; }
+    if (t < due) { cv.className="change bad"; cv.textContent="Short by " + peso(due - t); return; }
+    cv.className="change"; cv.textContent = peso(t - due);
+  }
+  $("wPax").addEventListener("input", walkTotal); $("wTender").addEventListener("input", walkChange);
   let forceWalk = false;
   $("wBtn").onclick = async () => {
     const m=$("wMsg"); m.className="msg"; m.textContent="…";
     try {
-      const j = await post("/api/cashier/walkin", {name:$("wName").value, pax:$("wPax").value, force:forceWalk});
-      m.className="msg ok"; m.textContent="Added. Collected " + peso(j.total) + " cash."; $("wName").value=""; $("wPax").value=2; forceWalk=false; $("wBtn").textContent="Add walk-in & collect"; load();
+      const j = await post("/api/cashier/walkin", {name:$("wName").value, pax:$("wPax").value, force:forceWalk, tendered:$("wTender").value});
+      m.className="msg ok"; m.textContent="Added. Collected " + peso(j.total) + " cash" + (j.tendered ? ". Change: " + peso(j.change) : "") + "."; $("wName").value=""; $("wPax").value=2; $("wTender").value=""; forceWalk=false; $("wBtn").textContent="Add walk-in & collect"; load();
     } catch(e){
       if(e.message==="login") return;
       m.className="msg err"; m.textContent=e.message;
@@ -239,8 +324,84 @@
   };
   $("q").addEventListener("input", () => data && render());
 
+  // ================= X / Z READING =================
+  const DENOMS = [1000,500,200,100,50,20,10,5,1];
+  DENOMS.forEach(d => { const l=document.createElement("label"); const s=document.createElement("span"); s.textContent="₱"+d+" ×";
+    const i=document.createElement("input"); i.type="number"; i.min="0"; i.inputMode="numeric"; i.id="dn"+d; i.placeholder="0"; i.addEventListener("input", zCalc); l.append(s,i); $("zDenoms").appendChild(l); });
+  $("zFloat").addEventListener("input", zCalc);
+  let zData = null;
+  function zCounted(){ return DENOMS.reduce((s,d)=>s + d*(parseInt($("dn"+d).value,10)||0), 0); }
+  function zCalc(){
+    if (!zData || zData.closed) return;
+    const exp = (Number($("zFloat").value)||0) + zData.report.payments.cashTotal, cnt = zCounted(), os = cnt - exp;
+    $("zCounted").textContent = peso(cnt); $("zCounted2").textContent = peso(cnt); $("zExpected").textContent = peso(exp);
+    $("zOS").textContent = (os>0?"Over ":os<0?"Short ":"") + peso(Math.abs(os)); $("zOS").style.color = os<0 ? "var(--bad)" : os>0 ? "var(--warn)" : "var(--good)";
+    renderZ(zData.report, {zNo:null, openingFloat:Number($("zFloat").value)||0, counted:cnt, expected:exp, overShort:os});
+  }
+  function zLine(parent, label, val, bold){ const d=document.createElement("div"); d.className="ln"+(bold?" b":""); const a=document.createElement("span"); a.textContent=label; const b=document.createElement("span"); b.textContent=val; d.append(a,b); parent.appendChild(d); }
+  function renderZ(r, z){
+    const p = $("zPrint"); p.textContent = "";
+    const w = document.createElement("div"); w.className = "zr";
+    const h = document.createElement("h3"); h.textContent = "BACKDOOR GRILL"; w.appendChild(h);
+    const t = document.createElement("div"); t.className="c"; t.textContent = z.zNo ? "Z READING  No. Z-" + String(z.zNo).padStart(4,"0") : "X READING (not closed)"; w.appendChild(t);
+    const d = document.createElement("div"); d.className="c"; d.textContent = niceDate(r.date) + " · " + r.timeLabel; w.appendChild(d);
+    const pr = document.createElement("div"); pr.className="c"; pr.textContent = "Printed " + new Date(z.closedAt || Date.now()).toLocaleString("en-PH"); w.appendChild(pr);
+    const hr = () => w.appendChild(document.createElement("hr"));
+    hr(); zLine(w,"GUESTS","",true);
+    zLine(w,"Booked guests",r.guests.booked); zLine(w,"Arrived (booked)",r.guests.arrived); zLine(w,"Walk-in guests",r.guests.walkIn);
+    zLine(w,"No-show guests",r.guests.noShow); if (r.guests.notYet) zLine(w,"Not marked yet",r.guests.notYet);
+    zLine(w,"Total served",r.guests.arrived + r.guests.walkIn,true);
+    hr(); zLine(w,"SALES","",true);
+    zLine(w,"Bookings ("+r.counts.bookingsArrived+")",peso(r.sales.bookings)); zLine(w,"Walk-ins ("+r.counts.walkIns+")",peso(r.sales.walkIns));
+    zLine(w,"Extra sales ("+r.counts.extras+")",peso(r.sales.extras)); zLine(w,"No-show down payments kept",peso(r.sales.noShowForfeited));
+    zLine(w,"GROSS SALES",peso(r.sales.gross),true);
+    hr(); zLine(w,"PAYMENTS","",true);
+    zLine(w,"GCash down payments",peso(r.payments.gcashDownPayments));
+    zLine(w,"Cash: booking balances",peso(r.payments.cashBalances)); zLine(w,"Cash: walk-ins",peso(r.payments.cashWalkIns)); zLine(w,"Cash: extra sales",peso(r.payments.cashExtras));
+    zLine(w,"TOTAL CASH SALES",peso(r.payments.cashTotal),true);
+    if (r.uncollected) zLine(w,"Not collected yet",peso(r.uncollected));
+    if (r.extrasList && r.extrasList.length) { hr(); zLine(w,"EXTRA SALES","",true); r.extrasList.forEach(x=>zLine(w,x.description,peso(x.amount))); }
+    hr(); zLine(w,"CASH DRAWER","",true);
+    zLine(w,"Starting cash (float)",peso(z.openingFloat)); zLine(w,"+ Cash sales",peso(r.payments.cashTotal));
+    zLine(w,"Expected in drawer",peso(z.expected),true); zLine(w,"Counted",peso(z.counted),true);
+    zLine(w,z.overShort<0?"SHORT":z.overShort>0?"OVER":"Balanced",peso(Math.abs(z.overShort)),true);
+    if (z.denominations) { hr(); zLine(w,"CASH COUNT","",true); DENOMS.forEach(dn => { const n = z.denominations[dn]; if (n) zLine(w,"₱"+dn+" × "+n,peso(dn*n)); }); }
+    hr(); const s = document.createElement("div"); s.className="c"; s.style.marginTop="18px"; s.textContent = "Cashier: ____________    Checked: ____________"; w.appendChild(s);
+    p.appendChild(w);
+  }
+  async function openZ(){
+    zOpen = true; confirmCode = null; paxEdit = null;
+    try {
+      zData = await api("/api/cashier/zreport");
+      $("zBox").hidden = false;
+      if (zData.closed) {
+        $("zTitle").textContent = "Z reading Z-" + String(zData.zNo).padStart(4,"0") + " (closed)"; $("zCountArea").hidden = true;
+        renderZ(zData.report, zData);
+      } else {
+        $("zTitle").textContent = "X reading (tonight so far)"; $("zCountArea").hidden = false; zCalc();
+      }
+      $("zBox").scrollIntoView({behavior:"smooth"});
+    } catch(e){ zOpen = false; }
+  }
+  $("zOpen").onclick = openZ;
+  $("zClose").onclick = () => { $("zBox").hidden = true; zOpen = false; load(); };
+  $("zPrintBtn").onclick = () => window.print();
+  let zForce = false;
+  $("zDo").onclick = async () => {
+    const m = $("zMsg"); m.className="msg"; m.textContent="…";
+    const denominations = {}; DENOMS.forEach(d => { const n = parseInt($("dn"+d).value,10)||0; if (n) denominations[d] = n; });
+    try {
+      await post("/api/cashier/zclose", {openingFloat:$("zFloat").value, counted:zCounted(), denominations, force:zForce});
+      m.textContent=""; zForce=false; $("zDo").textContent="Close the night (Z reading)"; await openZ(); load();
+    } catch(e){
+      if (e.message==="login") return;
+      m.className="msg err"; m.textContent=e.message;
+      if (e.data && e.data.pending) { zForce = true; $("zDo").textContent = "Close anyway"; }
+    }
+  };
+
   fetch("/api/cashier/me").then(r=>r.json()).then(j=>{ if(j.loggedIn){ showApp(); load(); } else showLogin(); }).catch(showLogin);
-  setInterval(()=>{ if(!$("app").hidden && !confirmCode && !paxEdit) load(); }, 30000);
+  setInterval(()=>{ if(!$("app").hidden && !confirmCode && !paxEdit && !zOpen) load(); }, 30000);
 })();
 </script>
 </body>
