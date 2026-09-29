@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Backdoor Grill Back Office</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/style.css">
+<style>
+.wrap.wide{max-width:1080px}
+.nav{display:flex;gap:4px;overflow-x:auto;padding-block:14px 4px;margin-bottom:10px;scrollbar-width:thin}
+.nav button{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:8px 14px;font:600 14px var(--body);cursor:pointer}
+.nav button[aria-selected="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+table.t{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+table.t th{text-align:left;font:600 12px var(--body);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--surface)}
+table.t td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+table.t tr:last-child td{border-bottom:0}
+table.t td.n,table.t th.n{text-align:right;white-space:nowrap}
+table.t tr.grp td{background:var(--surface);font-weight:700;font-size:13px;color:var(--accent);text-transform:uppercase;letter-spacing:.06em}
+table.t tr.sum td{font-weight:700;border-top:2px solid var(--ink)}
+table.t input,table.t select{padding:6px 8px;font-size:14px;min-width:70px}
+.low{color:var(--bad);font-weight:600}
+.okc{color:var(--good);font-weight:600}
+.bar-row{display:flex;flex-wrap:wrap;gap:10px;align-items:end;justify-content:space-between;margin-bottom:12px}
+.bar-row .row{gap:8px}
+.pl{display:grid;grid-template-columns:1fr auto;gap:0;font-size:15px;font-variant-numeric:tabular-nums}
+.pl div{padding:7px 0;border-bottom:1px dashed var(--line)}
+.pl .ind{padding-left:16px;color:var(--muted)}
+.pl .tot{font-weight:700;border-bottom:1px solid var(--ink)}
+.pl .big{font-family:var(--display);font-size:24px;border-bottom:0;padding-top:12px}
+.pl .r{text-align:right}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:820px){.two{grid-template-columns:1fr}}
+.neg{color:var(--bad)} .pos{color:var(--good)}
+.kicker{font-size:13px;color:var(--muted);margin-top:6px}
+.formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
+.linkbox{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:14px;margin-top:12px}
+h3{font-size:16px}
+.badge{display:inline-block;min-width:20px;padding:1px 6px;border-radius:99px;background:#E4553A;color:#fff;font:700 12px var(--mono);margin-left:4px}
+.bell.ring{animation:ring .6s ease 2}
+@keyframes ring{0%,100%{transform:rotate(0)}25%{transform:rotate(-8deg)}75%{transform:rotate(8deg)}}
+@media (prefers-reduced-motion:reduce){.bell.ring{animation:none}}
+.al{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--bg);font-size:14px}
+.al.unseen{border-color:var(--accent);background:var(--surface)}
+.al .when{color:var(--muted);font-size:12px;white-space:nowrap}
+.newbanner{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:50;background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);font-size:14px;max-width:calc(100% - 32px);cursor:pointer}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="wrap wide topnav">
+    <div><div class="eyebrow">Back office</div><h1 style="font-size:clamp(28px,6vw,40px)">Backdoor Grill</h1></div>
+    <div class="row" style="gap:8px">
+      <a class="btn ghost sm" id="cashLink" href="/cashier" target="_blank" rel="noopener" style="color:#F4F1E8;border-color:#4a524d;text-decoration:none" hidden>Cashier window ↗</a>
+      <button class="btn ghost sm bell" id="bellBtn" style="color:#F4F1E8;border-color:#4a524d" hidden aria-label="Alerts">Alerts <span class="badge" id="bellCount" hidden>0</span></button>
+      <button class="btn ghost sm" id="logoutBtn" style="color:#F4F1E8;border-color:#4a524d" hidden>Log out</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap wide">
+  <section class="block login" id="loginBox" hidden>
+    <h2>Admin login</h2>
+    <p class="sub">For the owner and manager only. Cashiers use <b>/cashier</b>.</p>
+    <form id="loginForm" class="row">
+      <input id="pw" type="password" autocomplete="current-password" placeholder="Password">
+      <button class="btn" type="submit">Log in</button>
+    </form>
+    <div class="msg" id="loginMsg" role="status"></div>
+  </section>
+
+  <div id="dash" hidden>
+    <section class="block alerts" id="alertBox" hidden style="margin-top:16px">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px"><h2>Alerts</h2>
+        <div class="row" style="gap:6px"><button class="btn ghost sm" id="alertSeen">Mark all as read</button><button class="btn ghost sm" id="alertClose">Close</button></div></div>
+      <div class="list" id="alertList"></div>
+    </section>
+    <nav class="nav" id="nav" role="tablist">
+      <button data-t="bookings" aria-selected="true">Bookings</button>
+      <button data-t="prep" aria-selected="false">Prep &amp; shopping list</button>
+      <button data-t="inventory" aria-selected="false">Inventory</button>
+      <button data-t="purchases" aria-selected="false">Purchases</button>
+      <button data-t="money" aria-selected="false">Expenses &amp; income</button>
+      <button data-t="reports" aria-selected="false">P&amp;L &amp; cash flow</button>
+      <button data-t="settings" aria-selected="false">Settings</button>
+    </nav>
+
+    <!-- BOOKINGS -->
+    <div data-p="bookings">
+      <section class="block">
+        <div class="row" style="justify-content:space-between;margin-bottom:12px">
+          <div><h2>Night</h2><p class="sub" style="margin:0" id="aDateLabel">—</p></div>
+          <div class="row"><input type="date" id="aDate" style="width:auto"><button class="btn ghost sm" id="refreshBtn">Refresh</button></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="k">Guests booked</div><div class="v" id="tHeads">0</div></div>
+          <div class="tile"><div class="k">Seats left</div><div class="v" id="tLeft">0</div></div>
+          <div class="tile"><div class="k">To verify</div><div class="v" id="tPend">0</div></div>
+          <div class="tile"><div class="k">Down payments in</div><div class="v" id="tRev">₱0</div></div>
+        </div>
+        <div class="meter" aria-hidden="true"><i id="tMeter" style="width:0%"></i></div>
+        <div class="filters" id="aFilters">
+          <button data-f="all" aria-pressed="true">All</button>
+          <button data-f="pending" aria-pressed="false">Pending</button>
+          <button data-f="confirmed" aria-pressed="false">Confirmed</button>
+          <button data-f="arrived" aria-pressed="false">Arrived</button>
+          <button data-f="noshow" aria-pressed="false">No-show</button>
+          <button data-f="cancelled" aria-pressed="false">Cancelled</button>
+        </div>
+        <div class="list" id="aList"></div>
+      </section>
+      <section class="block">
+        <h2>Upcoming nights</h2>
+        <p class="sub">Guests booked per night. Tap a night to open it.</p>
+        <div class="list" id="nights"></div>
+      </section>
+    </div>
+
+    <!-- PREP -->
+    <div data-p="prep" hidden>
+      <section class="block">
+        <div class="bar-row">
+          <div><h2>Prep &amp; shopping list</h2><p class="sub" style="margin:0">What to prepare and buy for a night, based on booked guests and stock on hand.</p></div>
+          <div class="row">
+            <label class="f" style="font-weight:400">Night<input type="date" id="pDate" style="width:auto"></label>
+            <label class="f" style="font-weight:400">Extra buffer %<input type="number" id="pBuf" value="10" min="0" max="100" style="width:90px"></label>
+          </div>
+        </div>
+        <div class="tiles" style="grid-template-columns:repeat(3,1fr)">
+          <div class="tile"><div class="k">Guests for the night</div><div class="v" id="pHeads">0</div></div>
+          <div class="tile"><div class="k">Food &amp; supplies to buy</div><div class="v" id="pCons">₱0</div></div>
+          <div class="tile"><div class="k">Utensils &amp; equipment to buy</div><div class="v" id="pAss">₱0</div></div>
+        </div>
+        <h3 style="margin:14px 0 6px">Food, drinks &amp; supplies</h3>
+        <div class="tblwrap"><table class="t" id="pTbl"></table></div>
+        <div class="row" style="margin-top:10px"><button class="btn" id="pBuyBtn">Record these as bought…</button><span class="note">Opens Purchases with the shopping list filled in.</span></div>
+        <h3 style="margin:18px 0 6px">Utensils &amp; equipment (one-time)</h3>
+        <div class="tblwrap"><table class="t" id="pTbl2"></table></div>
+      </section>
+    </div>
+
+    <!-- INVENTORY -->
+    <div data-p="inventory" hidden>
+      <section class="block">
+        <div class="bar-row">
+          <div><h2>Inventory</h2><p class="sub" style="margin:0">Stock on hand = bought − used − waste ± counts. Edit use per guest and cost here.</p></div>
+          <div class="row"><select id="iFilter" style="width:auto"><option value="consumable">Food &amp; supplies</option><option value="asset">Utensils &amp; equipment</option><option value="all">All items</option></select></div>
+        </div>
+        <div class="tblwrap"><table class="t" id="iTbl"></table></div>
+      </section>
+      <section class="block">
+        <h2>After the night: record usage</h2>
+        <p class="sub">Enter what was used, thrown away, or your actual count. This updates stock and the food cost in the P&amp;L.</p>
+        <div class="row" style="margin-bottom:10px">
+          <label class="f" style="font-weight:400">Date<input type="date" id="uDate" style="width:auto"></label>
+          <label class="f" style="font-weight:400">Type<select id="uType" style="width:auto">
+            <option value="usage">Used (cooked / served)</option>
+            <option value="waste">Waste / spoiled</option>
+            <option value="count">Actual count (sets stock)</option>
+          </select></label>
+          <button class="btn ghost sm" id="uFill" type="button">Fill with estimate for arrived guests</button>
+        </div>
+        <div class="tblwrap"><table class="t" id="uTbl"></table></div>
+        <div class="row" style="margin-top:10px"><button class="btn" id="uSave">Save</button><span class="msg" id="uMsg" style="margin:0"></span></div>
+      </section>
+      <section class="block">
+        <h2>Add or edit an item</h2>
+        <div class="formgrid" id="itemForm">
+          <label class="f">Name<input id="fiName"></label>
+          <label class="f">Group<select id="fiCat"></select></label>
+          <label class="f">Type<select id="fiKind"><option value="consumable">Used up (food/supplies)</option><option value="asset">One-time (utensil/equipment)</option></select></label>
+          <label class="f">Unit<input id="fiUnit" placeholder="kg, pc, L"></label>
+          <label class="f">Use per guest<input id="fiPer" type="number" step="0.001" min="0"></label>
+          <label class="f">Qty needed (one-time)<input id="fiNeed" type="number" step="1" min="0"></label>
+          <label class="f">Cost per unit (₱)<input id="fiCost" type="number" step="0.01" min="0"></label>
+        </div>
+        <div class="row" style="margin-top:10px"><button class="btn" id="fiSave">Add item</button><button class="btn ghost" id="fiCancel" hidden>Cancel edit</button><span class="msg" id="fiMsg" style="margin:0"></span></div>
+      </section>
+      <section class="block">
+        <div class="bar-row"><h2>Stock history</h2><input type="month" id="mMonth" style="width:auto"></div>
+        <div class="tblwrap"><table class="t" id="mTbl"></table></div>
+      </section>
+    </div>
+
+    <!-- PURCHASES -->
+    <div data-p="purchases" hidden>
+      <section class="block">
+        <h2>Record purchases</h2>
+        <p class="sub">What you bought (palengke, grocery, supplier). Items from the list update stock and cost automatically.</p>
+        <div class="row" style="margin-bottom:10px">
+          <label class="f" style="font-weight:400">Date<input type="date" id="buDate" style="width:auto"></label>
+          <label class="f" style="font-weight:400">Where / supplier<input id="buSup" placeholder="Digos public market" style="width:220px"></label>
+        </div>
+        <div class="tblwrap"><table class="t" id="buTbl"></table></div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn ghost sm" id="buAdd" type="button">+ Add line</button>
+          <span class="note">Total: <b class="mono" id="buTotal">₱0</b></span>
+          <button class="btn" id="buSave">Save purchases</button><span class="msg" id="buMsg" style="margin:0"></span>
+        </div>
+      </section>
+      <section class="block">
+        <div class="bar-row"><div><h2>Purchase records</h2><p class="sub" style="margin:0" id="puSum"></p></div><input type="month" id="puMonth" style="width:auto"></div>
+        <div class="tblwrap"><table class="t" id="puTbl"></table></div>
+      </section>
+    </div>
+
+    <!-- MONEY -->
+    <div data-p="money" hidden>
+      <div class="two">
+        <section class="block" style="margin:0">
+          <h2>Add expense</h2>
+          <p class="sub">Wages, rent, electricity, LPG, ads, permits. Food and supplies go in Purchases.</p>
+          <div class="formgrid">
+            <label class="f">Date<input type="date" id="exDate"></label>
+            <label class="f">Category<select id="exCat"></select></label>
+            <label class="f">Details<input id="exDesc" placeholder="2 helpers, Sep 30"></label>
+            <label class="f">Amount (₱)<input id="exAmt" type="number" min="0" step="0.01"></label>
+          </div>
+          <div class="row" style="margin-top:10px"><button class="btn" id="exSave">Add expense</button><span class="msg" id="exMsg" style="margin:0"></span></div>
+        </section>
+        <section class="block" style="margin:0">
+          <h2>Add other income</h2>
+          <p class="sub">Sales not from bookings. Cashier extra sales land here automatically.</p>
+          <div class="formgrid">
+            <label class="f">Date<input type="date" id="inDate"></label>
+            <label class="f">Details<input id="inDesc" placeholder="Extra drinks"></label>
+            <label class="f">Amount (₱)<input id="inAmt" type="number" min="0" step="0.01"></label>
+          </div>
+          <div class="row" style="margin-top:10px"><button class="btn" id="inSave">Add income</button><span class="msg" id="inMsg" style="margin:0"></span></div>
+        </section>
+      </div>
+      <section class="block" style="margin-top:16px">
+        <h2>Owner capital &amp; withdrawals</h2>
+        <p class="sub">Money you put in to start or run the business, and money you take out for yourself. Affects cash flow, not profit.</p>
+        <div class="formgrid">
+          <label class="f">Date<input type="date" id="caDate"></label>
+          <label class="f">Type<select id="caType"><option value="in">Capital put in</option><option value="out">Owner withdrawal</option></select></label>
+          <label class="f">Note<input id="caNote" placeholder="Starting capital"></label>
+          <label class="f">Amount (₱)<input id="caAmt" type="number" min="0" step="0.01"></label>
+        </div>
+        <div class="row" style="margin-top:10px"><button class="btn" id="caSave">Save</button><span class="msg" id="caMsg" style="margin:0"></span></div>
+      </section>
+      <section class="block">
+        <div class="bar-row"><h2>Records</h2><input type="month" id="moMonth" style="width:auto"></div>
+        <div class="tblwrap"><table class="t" id="moTbl"></table></div>
+      </section>
+    </div>
+
+    <!-- REPORTS -->
+    <div data-p="reports" hidden>
+      <section class="block">
+        <div class="bar-row">
+          <div><h2>Reports</h2><p class="sub" style="margin:0" id="rRange"></p></div>
+          <div class="row"><input type="date" id="rFrom" style="width:auto"><span>to</span><input type="date" id="rTo" style="width:auto">
+            <button class="btn ghost sm" id="rThis" type="button">This month</button><button class="btn ghost sm" id="rLast" type="button">Last month</button></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="k">Sales</div><div class="v" id="rSales">₱0</div></div>
+          <div class="tile"><div class="k">Net profit</div><div class="v" id="rNet">₱0</div></div>
+          <div class="tile"><div class="k">Food cost %</div><div class="v" id="rFc">0%</div></div>
+          <div class="tile"><div class="k">Cash on hand</div><div class="v" id="rCash">₱0</div></div>
+        </div>
+      </section>
+      <div class="two">
+        <section class="block" style="margin:0"><h2>Profit &amp; loss</h2><div class="pl" id="plBox"></div><p class="kicker" id="plNote"></p></section>
+        <section class="block" style="margin:0"><h2>Cash flow</h2><div class="pl" id="cfBox"></div><p class="kicker">Down payments count on the day they were verified; balances on the night guests arrived.</p></section>
+      </div>
+      <section class="block" style="margin-top:16px">
+        <h2>Daily cash</h2>
+        <div class="tblwrap"><table class="t" id="cfTbl"></table></div>
+      </section>
+    </div>
+
+    <!-- SETTINGS -->
+    <div data-p="settings" hidden>
+      <section class="block">
+        <h2>Settings</h2>
+        <p class="sub">Price, seats, down payment, cut-off and GCash details customers see.</p>
+        <div class="fields">
+          <label class="f">Price per person (₱)<input id="sPrice" type="number" min="1"></label>
+          <label class="f">Down payment (% of total)<input id="sDep" type="number" min="0" max="100"></label>
+          <label class="f">Moves allowed per booking <span class="h">0 = no moving</span><input id="sMoves" type="number" min="0" max="10"></label>
+          <label class="f">Max guests per night<input id="sCap" type="number" min="1"></label>
+          <label class="f">Max guests per booking<input id="sMaxPax" type="number" min="1"></label>
+          <label class="f">Days shown ahead<input id="sDays" type="number" min="1" max="60"></label>
+          <label class="f">Cut-off time<select id="sCutHour"></select></label>
+          <label class="f">Cut-off day<select id="sCutDay"><option value="0">Same day</option><option value="1">Day before</option></select></label>
+          <label class="f">Grill hours (label)<input id="sTime"></label>
+          <label class="f">GCash name<input id="sGName"></label>
+          <label class="f">GCash number<input id="sGNum" class="mono"></label>
+          <label class="f">Cashier PIN <span class="h">4–8 digits. The cashier logs in at /cashier</span><input id="sPin" inputmode="numeric" class="mono" autocomplete="off"></label>
+          <label class="f">Close specific dates <span class="h">YYYY-MM-DD, comma</span><input id="sClosed" placeholder="2026-12-25, 2027-01-01"></label>
+          <div class="f" style="grid-column:1/-1">Open days<div class="wk" id="sOpen"></div></div>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn" id="sSave">Save settings</button>
+          <a class="btn ghost" href="/api/admin/export.csv" style="text-decoration:none">Download all bookings (CSV)</a>
+          <span class="msg" id="sMsg" style="margin:0" role="status"></span>
+        </div>
+        <div class="linkbox"><span>Booking page: <b class="mono">/</b></span><span>Cashier window: <b class="mono">/cashier</b></span><span>Back office: <b class="mono">/admin</b></span></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const STL = {pending:"Pending",confirmed:"Confirmed",arrived:"Arrived",noshow:"No-show",cancelled:"Cancelled"};
+  const peso = n => (n<0?"−":"") + "₱" + Math.abs(Number(n||0)).toLocaleString("en-PH",{maximumFractionDigits:2});
+  const qty = n => Number(n||0).toLocaleString("en-PH",{maximumFractionDigits:3});
+  const dowOf = s => { const [y,m,d]=s.split("-").map(Number); return new Date(Date.UTC(y,m-1,d)).getUTCDay(); };
+  const niceDate = s => { const [,m,d]=s.split("-").map(Number); return DOW[dowOf(s)]+", "+MON[m-1]+" "+d; };
+  const hourLabel = h => h===12?"12:00 NN":h===0?"12:00 MN":(h%12)+":00 "+(h<12?"AM":"PM");
+  const addDays = (s,n) => { const [y,m,d]=s.split("-").map(Number); return new Date(Date.UTC(y,m-1,d+n)).toISOString().slice(0,10); };
+  const monthBounds = ym => { const from = ym+"-01"; const to = addDays(addDays(from,32).slice(0,8)+"01",-1); return {from,to}; };
+  function el(tag, attrs, ...kids){
+    const e = document.createElement(tag);
+    for (const k in (attrs||{})) { const v=attrs[k]; if (k==="class") e.className=v; else if (k.startsWith("on")) e[k]=v; else if (k==="text") e.textContent=v; else if (k==="value") e.value=v; else if (v!==undefined && v!==null && v!==false) e.setAttribute(k, v===true?"":v); }
+    kids.flat().forEach(c => { if (c===null||c===undefined||c===false) return; e.appendChild(typeof c==="object" ? c : document.createTextNode(String(c))); });
+    return e;
+  }
+  let TODAY = null, META = null, ITEMS = [];
+
+  async function api(url, opts){
+    const r = await fetch(url, opts);
+    if (r.status===401){ showLogin(); throw new Error("login"); }
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok) throw new Error(j.error||"Something went wrong.");
+    return j;
+  }
+  const send = (method, url, body) => api(url, {method, headers:{"Content-Type":"application/json"}, body: JSON.stringify(body||{})});
+  const flash = (id, ok, text) => { const m=$(id); m.className="msg "+(ok?"ok":"err"); m.textContent=text; if(ok) setTimeout(()=>{ if(m.textContent===text) m.textContent=""; }, 4000); };
+  const fail = id => e => { if (e.message!=="login") flash(id, false, e.message); };
+
+  function showLogin(){ $("loginBox").hidden=false; $("dash").hidden=true; $("logoutBtn").hidden=true; $("bellBtn").hidden=true; $("cashLink").hidden=true; }
+  async function showDash(){
+    $("loginBox").hidden=true; $("dash").hidden=false; $("logoutBtn").hidden=false; $("bellBtn").hidden=false; $("cashLink").hidden=false;
+    loadAlerts(true);
+    META = await api("/api/admin/meta"); TODAY = META.today;
+    initForms(); tab(location.hash.slice(1) || "bookings");
+  }
+  $("loginForm").onsubmit = async e => {
+    e.preventDefault(); const m=$("loginMsg"); m.className="msg"; m.textContent="…";
+    try{
+      const r=await fetch("/api/admin/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:$("pw").value})});
+      const j=await r.json(); if(!r.ok){ m.className="msg err"; m.textContent=j.error; return; }
+      $("pw").value=""; m.textContent=""; showDash();
+    }catch(err){ m.className="msg err"; m.textContent="No connection."; }
+  };
+  $("logoutBtn").onclick = async () => { await fetch("/api/admin/logout",{method:"POST"}); showLogin(); };
+
+  // ---- Tabs ----
+  const LOADERS = {};
+  function tab(t){
+    if (!document.querySelector('[data-p="'+t+'"]')) t = "bookings";
+    [...$("nav").children].forEach(b => b.setAttribute("aria-selected", String(b.dataset.t===t)));
+    document.querySelectorAll("[data-p]").forEach(p => p.hidden = p.dataset.p!==t);
+    try { history.replaceState(null, "", "#"+t); } catch(e){}
+    return LOADERS[t] && LOADERS[t]();
+  }
+  $("nav").onclick = e => { if (e.target.dataset.t) tab(e.target.dataset.t); };
+
+  let formsReady = false;
+  function initForms(){
+    if (formsReady) return; formsReady = true;
+    const ym = TODAY.slice(0,7);
+    ["aDate","pDate","uDate","buDate","exDate","inDate","caDate"].forEach(id => $(id).value = TODAY);
+    ["mMonth","puMonth","moMonth"].forEach(id => $(id).value = ym);
+    const mb = monthBounds(ym); $("rFrom").value = mb.from; $("rTo").value = mb.to;
+    META.categories.forEach(c => $("fiCat").appendChild(el("option",{value:c,text:c})));
+    META.expenseCategories.forEach(c => $("exCat").appendChild(el("option",{value:c,text:c})));
+    for (let h=6;h<=22;h++) $("sCutHour").appendChild(el("option",{value:h,text:hourLabel(h)}));
+    DOW.forEach((n,i) => $("sOpen").appendChild(el("label",{}, el("input",{type:"checkbox",id:"sOpen"+i}), el("span",{text:n}))));
+  }
+
+  // ================= BOOKINGS =================
+  let bDate=null, bFilter="all", bData=null;
+  LOADERS.bookings = async () => {
+    try {
+      bData = await api("/api/admin/bookings?date="+encodeURIComponent(bDate||TODAY));
+      bDate = bData.date; $("aDate").value = bDate; renderBookings();
+    } catch(e){ if(e.message!=="login") $("aList").replaceChildren(el("div",{class:"empty",text:e.message})); }
+  };
+  function renderBookings(){
+    const cfg=bData.config, list=bData.bookings, active=list.filter(b=>b.status!=="cancelled");
+    const heads=active.reduce((s,b)=>s+b.pax,0);
+    $("aDateLabel").textContent=niceDate(bDate)+" · "+cfg.timeLabel;
+    $("tHeads").textContent=heads+" / "+cfg.capacity;
+    $("tLeft").textContent=Math.max(0,cfg.capacity-heads);
+    $("tPend").textContent=list.filter(b=>b.status==="pending").length;
+    $("tRev").textContent=peso(list.filter(b=>["confirmed","arrived","noshow"].includes(b.status)).reduce((s,b)=>s+(b.deposit||0),0));
+    $("tMeter").style.width=Math.min(100,heads/cfg.capacity*100)+"%";
+    const shown=list.filter(b=>bFilter==="all"||b.status===bFilter);
+    const box=$("aList"); box.textContent="";
+    if(!shown.length) box.appendChild(el("div",{class:"empty",text:list.length?"No bookings match this filter.":"No bookings for this night yet."}));
+    shown.forEach(b=>{
+      const walk = String(b.gcashRef||"").startsWith("WALKIN-");
+      const meta = el("div",{class:"meta"},
+        [["Code",b.code],["Phone",b.phone||"—"],[walk?"Walk-in":"GCash ref",walk?"paid cash":b.gcashRef],["Total",peso(b.total)],["Down payment",peso(b.deposit)],["Balance (cash)",peso(b.balance)]]
+          .map(([k,v])=>el("span",{},k+" ",el("b",{class:"mono",text:v}))),
+        b.note ? el("span",{text:"Note: "+b.note}) : null);
+      const acts = el("div",{class:"acts"});
+      const add=(label,status,ghost)=>acts.appendChild(el("button",{class:"btn sm"+(ghost?" ghost":""),text:label,onclick:async ev=>{
+        ev.target.disabled=true; try{ await send("PATCH","/api/admin/bookings/"+b.code,{status}); LOADERS.bookings(); }catch(e){ ev.target.disabled=false; ev.target.textContent="Not saved"; } }}));
+      if(b.status==="pending"){ add("GCash down payment verified ✓","confirmed"); add("Cancel (no/invalid payment)","cancelled",true); }
+      if(b.status==="confirmed"){ add("Arrived · balance paid","arrived"); add("No-show","noshow",true); add("Cancel","cancelled",true); }
+      if(["arrived","noshow","cancelled"].includes(b.status)) add("Back to confirmed","confirmed",true);
+      let moveBox=null;
+      const movesLeft=(bData.config.maxMoves??1)-(b.moves||0);
+      if(["pending","confirmed","noshow"].includes(b.status) && movesLeft>0){
+        const dIn=el("input",{type:"date",min:TODAY,value:b.date,style:"width:auto"});
+        const msg=el("span",{class:"msg",style:"margin:0"});
+        let force=false;
+        const go=el("button",{class:"btn sm",text:"Move",onclick:async()=>{
+          if(!dIn.value || dIn.value===b.date){ msg.className="msg err"; msg.textContent="Pick a different night."; return; }
+          go.disabled=true;
+          try{ await send("POST","/api/admin/bookings/"+b.code+"/move",{date:dIn.value,force}); bDate=dIn.value; LOADERS.bookings(); }
+          catch(e){ go.disabled=false; msg.className="msg err"; msg.textContent=e.message; if(/seat/.test(e.message)){ force=true; go.textContent="Move anyway"; } }
+        }});
+        moveBox=el("div",{class:"acts",hidden:true}, el("span",{text:"New night:"}), dIn, go, el("button",{class:"btn ghost sm",text:"Close",onclick:()=>{ moveBox.hidden=true; }}), msg);
+        acts.appendChild(el("button",{class:"btn ghost sm",text:"Move to another night ("+movesLeft+" left)",onclick:()=>{ moveBox.hidden=false; }}));
+      }
+      box.appendChild(el("div",{class:"bk"}, el("div",{class:"who",text:b.name+" · "+b.pax+" pax"}), el("span",{class:"pill st-"+b.status,text:STL[b.status]}), meta, acts, moveBox));
+    });
+    const n=$("nights"); n.textContent="";
+    const up=bData.nights.filter(x=>x.date>=bData.today);
+    if(!up.length) n.appendChild(el("div",{class:"empty",text:"No bookings for upcoming nights yet."}));
+    up.forEach(x=>n.appendChild(el("button",{class:"bk",style:"text-align:left;cursor:pointer;font:inherit;color:inherit",onclick:()=>{ bDate=x.date; LOADERS.bookings(); window.scrollTo({top:0,behavior:"smooth"}); }},
+      el("div",{class:"who",text:niceDate(x.date)}), el("span",{class:"mono",text:x.heads+" / "+cfg.capacity+(x.pending?" · "+x.pending+" to verify":"")}))));
+  }
+  $("aDate").onchange=e=>{ if(e.target.value){ bDate=e.target.value; LOADERS.bookings(); } };
+  $("refreshBtn").onclick=()=>LOADERS.bookings();
+  $("aFilters").onclick=e=>{ const f=e.target.dataset&&e.target.dataset.f; if(!f) return; bFilter=f;
+    [...$("aFilters").children].forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.f===f))); renderBookings(); };
+
+  // ================= PREP =================
+  let prep=null;
+  LOADERS.prep = async () => {
+    try { prep = await api("/api/admin/prep?date="+$("pDate").value+"&buffer="+($("pBuf").value||0)); renderPrep(); } catch(e){}
+  };
+  function renderPrep(){
+    $("pHeads").textContent = prep.heads;
+    $("pCons").textContent = peso(prep.consumables.reduce((s,i)=>s+i.estCost,0));
+    $("pAss").textContent = peso(prep.assets.reduce((s,i)=>s+i.estCost,0));
+    const t=$("pTbl"); t.textContent="";
+    t.appendChild(el("tr",{}, el("th",{text:"Item"}), el("th",{class:"n",text:"Per guest"}), el("th",{class:"n",text:"Need"}), el("th",{class:"n",text:"In stock"}), el("th",{class:"n",text:"To buy"}), el("th",{class:"n",text:"Est. cost"})));
+    if(!prep.heads) t.appendChild(el("tr",{}, el("td",{colspan:6,class:"note",text:"No guests booked for this night yet, so nothing is needed. Pick another night."})));
+    let cat=null;
+    prep.consumables.forEach(i=>{
+      if(i.category!==cat){ cat=i.category; t.appendChild(el("tr",{class:"grp"}, el("td",{colspan:6,text:cat}))); }
+      t.appendChild(el("tr",{}, el("td",{text:i.name}), el("td",{class:"n",text:qty(i.perHead)+" "+i.unit}), el("td",{class:"n",text:qty(i.need)+" "+i.unit}),
+        el("td",{class:"n",text:qty(i.stock)}), el("td",{class:"n "+(i.toBuy>0?"low":"okc"),text:i.toBuy>0?qty(i.toBuy)+" "+i.unit:"OK"}), el("td",{class:"n",text:i.toBuy>0?peso(i.estCost):"—"})));
+    });
+    const t2=$("pTbl2"); t2.textContent="";
+    t2.appendChild(el("tr",{}, el("th",{text:"Item"}), el("th",{class:"n",text:"Need"}), el("th",{class:"n",text:"Have"}), el("th",{class:"n",text:"To buy"}), el("th",{class:"n",text:"Est. cost"})));
+    cat=null;
+    prep.assets.forEach(i=>{
+      if(i.category!==cat){ cat=i.category; t2.appendChild(el("tr",{class:"grp"}, el("td",{colspan:5,text:cat}))); }
+      t2.appendChild(el("tr",{}, el("td",{text:i.name}), el("td",{class:"n",text:qty(i.needQty)+" "+i.unit}), el("td",{class:"n",text:qty(i.stock)}),
+        el("td",{class:"n "+(i.toBuy>0?"low":"okc"),text:i.toBuy>0?qty(i.toBuy):"OK"}), el("td",{class:"n",text:i.toBuy>0?peso(i.estCost):"—"})));
+    });
+  }
+  $("pDate").onchange=()=>LOADERS.prep(); $("pBuf").onchange=()=>LOADERS.prep();
+  $("pBuyBtn").onclick=async()=>{
+    if(!prep) return;
+    const lines=[...prep.consumables,...prep.assets].filter(i=>i.toBuy>0).map(i=>({itemId:String(i.id), qty:i.toBuy, total:Math.round(i.toBuy*i.cost*100)/100}));
+    await tab("purchases"); buLines = lines.length ? lines : [{}]; renderBuy();
+  };
+
+  // ================= INVENTORY =================
+  async function ensureItems(force){ if(force || !ITEMS.length) ITEMS=(await api("/api/admin/items")).items; }
+  LOADERS.inventory = async () => { try { await ensureItems(true); renderInv(); renderUsage(); await loadMoves(); } catch(e){} };
+  let editId=null;
+  function renderInv(){
+    const f=$("iFilter").value, t=$("iTbl"); t.textContent="";
+    const asset = f==="asset";
+    t.appendChild(el("tr",{}, el("th",{text:"Item"}), el("th",{class:"n",text:asset?"Need":"Per guest"}), el("th",{class:"n",text:"Stock"}),
+      el("th",{class:"n",text:"Cost / unit"}), el("th",{class:"n",text:"Stock value"}), el("th",{text:""})));
+    let cat=null, tot=0;
+    ITEMS.filter(i=>f==="all"||i.kind===f).forEach(i=>{
+      if(i.category!==cat){ cat=i.category; t.appendChild(el("tr",{class:"grp"}, el("td",{colspan:6,text:cat}))); }
+      const val=Math.max(0,i.stock)*i.cost; tot+=val;
+      const short = i.kind==="asset" ? i.stock < i.needQty : i.stock<=0;
+      t.appendChild(el("tr",{}, el("td",{text:i.name}),
+        el("td",{class:"n",text:i.kind==="asset"?qty(i.needQty)+" "+i.unit:qty(i.perHead)+" "+i.unit}),
+        el("td",{class:"n "+(short?"low":""),text:qty(i.stock)+" "+i.unit}),
+        el("td",{class:"n",text:peso(i.cost)}), el("td",{class:"n",text:peso(val)}),
+        el("td",{class:"n"}, el("button",{class:"btn ghost sm",text:"Edit",onclick:()=>editItem(i)}), " ",
+          el("button",{class:"btn ghost sm",text:"Remove",onclick:async ev=>{ ev.target.disabled=true; try{ await send("DELETE","/api/admin/items/"+i.id); LOADERS.inventory(); }catch(e){ ev.target.disabled=false; } }}))));
+    });
+    t.appendChild(el("tr",{class:"sum"}, el("td",{colspan:4,text:"Total stock value"}), el("td",{class:"n",text:peso(tot)}), el("td",{})));
+  }
+  $("iFilter").onchange=renderInv;
+  function editItem(i){
+    editId=i.id; $("fiName").value=i.name; $("fiCat").value=i.category; $("fiKind").value=i.kind; $("fiUnit").value=i.unit;
+    $("fiPer").value=i.perHead; $("fiNeed").value=i.needQty; $("fiCost").value=i.cost;
+    $("fiSave").textContent="Save changes"; $("fiCancel").hidden=false; $("itemForm").scrollIntoView({behavior:"smooth",block:"center"});
+  }
+  function resetItem(){ editId=null; ["fiName","fiUnit","fiPer","fiNeed","fiCost"].forEach(id=>$(id).value=""); $("fiSave").textContent="Add item"; $("fiCancel").hidden=true; }
+  $("fiCancel").onclick=resetItem;
+  $("fiSave").onclick=async()=>{
+    const body={name:$("fiName").value,category:$("fiCat").value,kind:$("fiKind").value,unit:$("fiUnit").value,perHead:$("fiPer").value,needQty:$("fiNeed").value,cost:$("fiCost").value};
+    try{ await send(editId?"PUT":"POST", "/api/admin/items"+(editId?"/"+editId:""), body); flash("fiMsg",true,"Saved."); resetItem(); LOADERS.inventory(); }catch(e){ fail("fiMsg")(e); }
+  };
+  function renderUsage(){
+    const t=$("uTbl"); t.textContent="";
+    const count=$("uType").value==="count";
+    t.appendChild(el("tr",{}, el("th",{text:"Item"}), el("th",{class:"n",text:"In stock"}), el("th",{class:"n",text:count?"Actual count":"Quantity"}), el("th",{text:"Unit"})));
+    let cat=null;
+    ITEMS.filter(i=>i.kind==="consumable").forEach(i=>{
+      if(i.category!==cat){ cat=i.category; t.appendChild(el("tr",{class:"grp"}, el("td",{colspan:4,text:cat}))); }
+      t.appendChild(el("tr",{}, el("td",{text:i.name}), el("td",{class:"n",text:qty(i.stock)}),
+        el("td",{class:"n"}, el("input",{type:"number",step:"0.001",min:"0","data-id":i.id,id:"u"+i.id,style:"width:110px"})), el("td",{text:i.unit})));
+    });
+  }
+  $("uType").onchange=renderUsage;
+  $("uFill").onclick=async()=>{
+    try{
+      const d=await api("/api/admin/bookings?date="+$("uDate").value);
+      const guests=d.bookings.filter(b=>b.status==="arrived").reduce((s,b)=>s+b.pax,0);
+      $("uType").value="usage"; renderUsage();
+      ITEMS.filter(i=>i.kind==="consumable").forEach(i=>{ const v=Math.round(i.perHead*guests*1000)/1000; if(v>0) $("u"+i.id).value=v; });
+      flash("uMsg",true,"Filled for "+guests+" arrived guest(s). Change to the real amounts before saving.");
+    }catch(e){ fail("uMsg")(e); }
+  };
+  $("uSave").onclick=async()=>{
+    const lines=[...$("uTbl").querySelectorAll("input[data-id]")].filter(x=>x.value!=="").map(x=>({itemId:x.dataset.id, qty:x.value}));
+    if(!lines.length) return flash("uMsg",false,"Enter at least one quantity.");
+    try{ const j=await send("POST","/api/admin/moves",{date:$("uDate").value,type:$("uType").value,lines}); await LOADERS.inventory(); flash("uMsg",true,"Saved "+j.saved+" item(s)."); }catch(e){ fail("uMsg")(e); }
+  };
+  async function loadMoves(){
+    const {from,to}=monthBounds($("mMonth").value||TODAY.slice(0,7));
+    const d=await api("/api/admin/moves?from="+from+"&to="+to); const t=$("mTbl"); t.textContent="";
+    t.appendChild(el("tr",{}, el("th",{text:"Date"}), el("th",{text:"Item"}), el("th",{text:"Type"}), el("th",{class:"n",text:"Qty"}), el("th",{class:"n",text:"Value"}), el("th",{text:""})));
+    if(!d.rows.length) t.appendChild(el("tr",{}, el("td",{colspan:6,class:"note",text:"No usage, waste or counts recorded this month."})));
+    d.rows.forEach(r=>t.appendChild(el("tr",{}, el("td",{text:r.date}), el("td",{text:r.name}), el("td",{text:{usage:"Used",waste:"Waste",adjust:"Count adjustment"}[r.type]}),
+      el("td",{class:"n",text:qty(r.qty)+" "+r.unit}), el("td",{class:"n",text:peso(r.qty*r.unitCost)}),
+      el("td",{class:"n"}, el("button",{class:"btn ghost sm",text:"Delete",onclick:async ev=>{ ev.target.disabled=true; await send("DELETE","/api/admin/moves/"+r.id).catch(()=>{}); LOADERS.inventory(); }})))));
+  }
+  $("mMonth").onchange=()=>loadMoves().catch(()=>{});
+
+  // ================= PURCHASES =================
+  let buLines=[{}];
+  LOADERS.purchases = async () => { try { await ensureItems(); renderBuy(); await loadPurchases(); } catch(e){} };
+  function renderBuy(){
+    const t=$("buTbl"); t.textContent="";
+    t.appendChild(el("tr",{}, el("th",{text:"Item"}), el("th",{text:"Or describe"}), el("th",{class:"n",text:"Qty"}), el("th",{class:"n",text:"Total paid (₱)"}), el("th",{})));
+    buLines.forEach((l,idx)=>{
+      const sel=el("select",{style:"min-width:200px"}, el("option",{value:"",text:"— not on the list —"}),
+        META.categories.map(c=>el("optgroup",{label:c}, ITEMS.filter(i=>i.category===c).map(i=>el("option",{value:String(i.id),text:i.name+" ("+i.unit+")"})))));
+      sel.value=l.itemId?String(l.itemId):"";
+      sel.onchange=()=>{ l.itemId=sel.value; const it=ITEMS.find(i=>String(i.id)===sel.value); if(it && !l.total && l.qty){ l.total=Math.round(l.qty*it.cost*100)/100; renderBuy(); } };
+      const desc=el("input",{value:l.description||"",placeholder:"e.g. ice",style:"min-width:140px"}); desc.oninput=()=>l.description=desc.value;
+      const q=el("input",{type:"number",step:"0.001",min:"0",value:l.qty??"",style:"width:90px"}); q.oninput=()=>{ l.qty=q.value; };
+      const tot=el("input",{type:"number",step:"0.01",min:"0",value:l.total??"",style:"width:120px"}); tot.oninput=()=>{ l.total=tot.value; sumBuy(); };
+      t.appendChild(el("tr",{}, el("td",{},sel), el("td",{},desc), el("td",{class:"n"},q), el("td",{class:"n"},tot),
+        el("td",{class:"n"}, el("button",{class:"btn ghost sm",text:"×","aria-label":"Remove line",onclick:()=>{ buLines.splice(idx,1); if(!buLines.length) buLines=[{}]; renderBuy(); }}))));
+    });
+    sumBuy();
+  }
+  function sumBuy(){ $("buTotal").textContent=peso(buLines.reduce((s,l)=>s+(Number(l.total)||0),0)); }
+  $("buAdd").onclick=()=>{ buLines.push({}); renderBuy(); };
+  $("buSave").onclick=async()=>{
+    const lines=buLines.filter(l=>(l.itemId||l.description) && Number(l.total)>0).map(l=>({itemId:l.itemId||null,description:l.description||"",qty:Number(l.qty)||1,total:Number(l.total)}));
+    if(!lines.length) return flash("buMsg",false,"Add at least one item with the amount paid.");
+    try{ const j=await send("POST","/api/admin/purchases",{date:$("buDate").value,supplier:$("buSup").value,lines}); buLines=[{}]; await ensureItems(true); renderBuy(); await loadPurchases(); flash("buMsg",true,"Saved "+j.saved+" line(s)."); }catch(e){ fail("buMsg")(e); }
+  };
+  async function loadPurchases(){
+    const {from,to}=monthBounds($("puMonth").value||TODAY.slice(0,7));
+    const d=await api("/api/admin/purchases?from="+from+"&to="+to); const t=$("puTbl"); t.textContent="";
+    t.appendChild(el("tr",{}, el("th",{text:"Date"}), el("th",{text:"Item"}), el("th",{text:"Supplier"}), el("th",{class:"n",text:"Qty"}), el("th",{class:"n",text:"Unit cost"}), el("th",{class:"n",text:"Total"}), el("th",{})));
+    if(!d.rows.length) t.appendChild(el("tr",{}, el("td",{colspan:7,class:"note",text:"No purchases recorded this month."})));
+    let sum=0;
+    d.rows.forEach(r=>{ sum+=r.total; t.appendChild(el("tr",{}, el("td",{text:r.date}), el("td",{text:r.description}), el("td",{text:r.supplier||"—"}),
+      el("td",{class:"n",text:qty(r.qty)+(r.unit?" "+r.unit:"")}), el("td",{class:"n",text:peso(r.unitCost)}), el("td",{class:"n",text:peso(r.total)}),
+      el("td",{class:"n"}, el("button",{class:"btn ghost sm",text:"Delete",onclick:async ev=>{ ev.target.disabled=true; await send("DELETE","/api/admin/purchases/"+r.id).catch(()=>{}); ITEMS=[]; loadPurchases(); }})))); });
+    if(d.rows.length) t.appendChild(el("tr",{class:"sum"}, el("td",{colspan:5,text:"Total"}), el("td",{class:"n",text:peso(sum)}), el("td",{})));
+    $("puSum").textContent = d.rows.length + " purchase(s) · " + peso(sum);
+  }
+  $("puMonth").onchange=()=>loadPurchases().catch(()=>{});
+
+  // ================= EXPENSES / INCOME / CAPITAL =================
+  LOADERS.money = () => loadMoney().catch(()=>{});
+  const saveLedger = (path, body, msg, clear) => send("POST","/api/admin/"+path, body).then(()=>{ flash(msg,true,"Saved."); clear.forEach(id=>$(id).value=""); loadMoney(); }).catch(fail(msg));
+  $("exSave").onclick=()=>saveLedger("expenses",{date:$("exDate").value,category:$("exCat").value,description:$("exDesc").value,amount:$("exAmt").value},"exMsg",["exDesc","exAmt"]);
+  $("inSave").onclick=()=>saveLedger("income",{date:$("inDate").value,description:$("inDesc").value,amount:$("inAmt").value},"inMsg",["inDesc","inAmt"]);
+  $("caSave").onclick=()=>saveLedger("capital",{date:$("caDate").value,type:$("caType").value,note:$("caNote").value,amount:$("caAmt").value},"caMsg",["caNote","caAmt"]);
+  async function loadMoney(){
+    const {from,to}=monthBounds($("moMonth").value||TODAY.slice(0,7)); const qs="?from="+from+"&to="+to;
+    const [ex,inc,cap]=await Promise.all([api("/api/admin/expenses"+qs),api("/api/admin/income"+qs),api("/api/admin/capital"+qs)]);
+    const rows=[
+      ...ex.rows.map(r=>({...r,kind:"Expense",label:r.category+(r.description?" · "+r.description:""),sign:-1,path:"expenses"})),
+      ...inc.rows.map(r=>({...r,kind:"Income",label:r.description,sign:1,path:"income"})),
+      ...cap.rows.map(r=>({...r,kind:r.type==="in"?"Capital in":"Owner withdrawal",label:r.note||"—",sign:r.type==="in"?1:-1,path:"capital"})),
+    ].sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id);
+    const t=$("moTbl"); t.textContent="";
+    t.appendChild(el("tr",{}, el("th",{text:"Date"}), el("th",{text:"Type"}), el("th",{text:"Details"}), el("th",{class:"n",text:"Amount"}), el("th",{})));
+    if(!rows.length) t.appendChild(el("tr",{}, el("td",{colspan:5,class:"note",text:"No expenses, income or capital recorded this month."})));
+    rows.forEach(r=>t.appendChild(el("tr",{}, el("td",{text:r.date}), el("td",{text:r.kind}), el("td",{text:r.label}),
+      el("td",{class:"n "+(r.sign<0?"neg":"pos"),text:peso(r.sign*r.amount)}),
+      el("td",{class:"n"}, el("button",{class:"btn ghost sm",text:"Delete",onclick:async ev=>{ ev.target.disabled=true; await send("DELETE","/api/admin/"+r.path+"/"+r.id).catch(()=>{}); loadMoney(); }})))));
+  }
+  $("moMonth").onchange=()=>loadMoney().catch(()=>{});
+
+  // ================= REPORTS =================
+  LOADERS.reports = async () => {
+    try{
+      const d=await api("/api/admin/report?from="+$("rFrom").value+"&to="+$("rTo").value);
+      const p=d.pnl, c=d.cash;
+      $("rRange").textContent = niceDate(d.from)+" – "+niceDate(d.to)+" · "+p.guests+" guests served on "+p.nights+" night(s)";
+      $("rSales").textContent=peso(p.revenue); $("rNet").textContent=peso(p.netProfit); $("rNet").className="v "+(p.netProfit<0?"neg":"");
+      $("rFc").textContent=(p.foodCostPct||0).toFixed(1)+"%"; $("rCash").textContent=peso(c.closing);
+      const line=(label,v,cls)=>[el("div",{class:cls||"",text:label}), el("div",{class:"r "+(cls||""),text:peso(v)})];
+      $("plBox").replaceChildren(
+        ...line("Booking sales",p.bookingSales), ...line("Other sales (drinks, add-ons)",p.otherIncome),
+        ...line("Total sales",p.revenue,"tot"),
+        ...p.cogsByCategory.flatMap(x=>line(x.category,-x.amt,"ind")),
+        ...line("Cost of food & supplies used",-p.cogs,"tot"),
+        ...line("Gross profit",p.grossProfit,"tot"),
+        ...p.expensesByCategory.flatMap(x=>line(x.category,-x.amt,"ind")),
+        ...line("Operating expenses",-p.opex,"tot"),
+        ...line("Net profit",p.netProfit,"big "+(p.netProfit<0?"neg":"pos")));
+      $("plNote").textContent = "Food cost counts what you recorded in Inventory as used, wasted, or missing at count time"+(p.waste?" (waste "+peso(p.waste)+")":"")+". Utensils and equipment bought ("+peso(p.equipmentBought)+") are not expenses; they show in cash flow."+(p.noshowGuests?" No-show down payments kept: "+p.noshowGuests+" guest(s).":"");
+      $("cfBox").replaceChildren(
+        ...line("Opening cash",c.opening,"tot"),
+        ...line("Down payments (GCash)",c.downPayments,"ind"), ...line("Balances collected (cash)",c.balances,"ind"),
+        ...line("Other sales",c.otherIncome,"ind"), ...line("Capital put in",c.capitalIn,"ind"),
+        ...line("Total cash in",c.totalIn,"tot"),
+        ...line("Purchases (food, supplies, equipment)",-c.purchases,"ind"), ...line("Expenses",-c.expenses,"ind"), ...line("Owner withdrawals",-c.ownerDraw,"ind"),
+        ...line("Total cash out",-c.totalOut,"tot"),
+        ...line("Closing cash",c.closing,"big "+(c.closing<0?"neg":"")));
+      const t=$("cfTbl"); t.textContent="";
+      t.appendChild(el("tr",{}, ...["Date","Down pay.","Balances","Other","Capital","Purchases","Expenses","Withdraw","Net","Balance"].map((h,i)=>el("th",{class:i?"n":"",text:h}))));
+      if(!d.daily.length) t.appendChild(el("tr",{}, el("td",{colspan:10,class:"note",text:"No cash movement in this period."})));
+      d.daily.forEach(x=>t.appendChild(el("tr",{}, el("td",{text:x.date}),
+        ...[x.downPayments,x.balances,x.otherIncome,x.capitalIn,-x.purchases,-x.expenses,-x.ownerDraw].map(v=>el("td",{class:"n",text:v?peso(v):"—"})),
+        el("td",{class:"n "+(x.net<0?"neg":"pos"),text:peso(x.net)}), el("td",{class:"n",text:peso(x.balance)}))));
+    }catch(e){}
+  };
+  $("rFrom").onchange=LOADERS.reports; $("rTo").onchange=LOADERS.reports;
+  $("rThis").onclick=()=>{ const m=monthBounds(TODAY.slice(0,7)); $("rFrom").value=m.from; $("rTo").value=m.to; LOADERS.reports(); };
+  $("rLast").onclick=()=>{ const m=monthBounds(addDays(TODAY.slice(0,8)+"01",-1).slice(0,7)); $("rFrom").value=m.from; $("rTo").value=m.to; LOADERS.reports(); };
+
+  // ================= SETTINGS =================
+  LOADERS.settings = async () => { try { const d=await api("/api/admin/bookings?date="+TODAY); fillSettings(d.config); } catch(e){} };
+  function fillSettings(c){
+    $("sPrice").value=c.price; $("sDep").value=c.depositPct; $("sMoves").value=c.maxMoves??1; $("sCap").value=c.capacity; $("sMaxPax").value=c.maxPax; $("sDays").value=c.daysAhead;
+    $("sCutHour").value=c.cutoffHour; $("sCutDay").value=c.cutoffDaysBefore; $("sGName").value=c.gcashName; $("sGNum").value=c.gcashNumber;
+    $("sTime").value=c.timeLabel; $("sPin").value=c.cashierPin||""; $("sClosed").value=(c.closedDates||[]).join(", ");
+    DOW.forEach((_,i)=>$("sOpen"+i).checked=c.openDays.includes(i));
+  }
+  $("sSave").onclick=async()=>{
+    const pin=$("sPin").value.trim();
+    if(pin && !/^\d{4,8}$/.test(pin)) return flash("sMsg",false,"Cashier PIN must be 4 to 8 digits.");
+    try{
+      const j=await send("PUT","/api/admin/config",{price:$("sPrice").value,depositPct:$("sDep").value,maxMoves:$("sMoves").value,capacity:$("sCap").value,maxPax:$("sMaxPax").value,daysAhead:$("sDays").value,
+        cutoffHour:$("sCutHour").value,cutoffDaysBefore:$("sCutDay").value,gcashName:$("sGName").value,gcashNumber:$("sGNum").value,timeLabel:$("sTime").value,cashierPin:pin,
+        closedDates:$("sClosed").value.split(",").map(s=>s.trim()).filter(Boolean),openDays:DOW.map((_,i)=>i).filter(i=>$("sOpen"+i).checked)});
+      fillSettings(j.config); flash("sMsg",true,"Saved.");
+    }catch(e){ fail("sMsg")(e); }
+  };
+
+  // ================= ALERTS =================
+  let lastAlertId = null;
+  const TAG = {new:"New booking", moved:"Date changed"};
+  async function loadAlerts(first){
+    let d; try { d = await api("/api/admin/alerts"); } catch(e){ return; }
+    $("bellCount").textContent = d.unseen; $("bellCount").hidden = !d.unseen;
+    document.title = (d.unseen ? "("+d.unseen+") " : "") + "Backdoor Grill Back Office";
+    const top = d.rows[0] ? d.rows[0].id : 0;
+    if (!first && lastAlertId !== null && top > lastAlertId) {
+      const fresh = d.rows.filter(r => r.id > lastAlertId);
+      $("bellBtn").classList.remove("ring"); void $("bellBtn").offsetWidth; $("bellBtn").classList.add("ring");
+      const nb = el("div",{class:"newbanner",role:"status",text:(fresh.length>1 ? fresh.length+" new alerts. " : "")+fresh[0].message,onclick:()=>{ nb.remove(); openAlerts(); }});
+      document.body.appendChild(nb); setTimeout(()=>nb.remove(), 9000);
+      if (!document.querySelector('[data-p="bookings"]').hidden) LOADERS.bookings();
+    }
+    lastAlertId = top;
+    const list = $("alertList"); list.textContent = "";
+    if (!d.rows.length) list.appendChild(el("div",{class:"empty",text:"No alerts yet. New bookings and date changes will show here."}));
+    d.rows.forEach(r => list.appendChild(el("div",{class:"al"+(r.seen?"":" unseen")},
+      el("span",{class:"pill "+(r.type==="moved"?"st-arrived":"st-pending"),text:TAG[r.type]||r.type}),
+      el("span",{text:r.message}),
+      el("span",{class:"row",style:"gap:6px"}, el("span",{class:"when",text:new Date(r.createdAt).toLocaleString("en-PH",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}),
+        r.date ? el("button",{class:"btn ghost sm",text:"Open",onclick:()=>{ bDate=r.date; $("alertBox").hidden=true; tab("bookings"); }}) : null))));
+  }
+  function openAlerts(){ $("alertBox").hidden=false; $("alertBox").scrollIntoView({behavior:"smooth"}); }
+  $("bellBtn").onclick = () => { if ($("alertBox").hidden) openAlerts(); else $("alertBox").hidden = true; };
+  $("alertClose").onclick = () => $("alertBox").hidden = true;
+  $("alertSeen").onclick = async () => { await send("POST","/api/admin/alerts/seen").catch(()=>{}); loadAlerts(true); };
+  setInterval(()=>{ if(!$("dash").hidden) loadAlerts(false); }, 30000);
+
+  fetch("/api/admin/me").then(r=>r.json()).then(j=>{ if(j.loggedIn) showDash(); else showLogin(); }).catch(showLogin);
+  setInterval(()=>{ if(!$("dash").hidden && !document.querySelector('[data-p="bookings"]').hidden) LOADERS.bookings(); }, 60000);
+})();
+</script>
+</body>
+</html>
