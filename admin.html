@@ -134,6 +134,13 @@ h3{font-size:16px}
           <div class="tile"><div class="k">Food &amp; supplies to buy</div><div class="v" id="pCons">₱0</div></div>
           <div class="tile"><div class="k">Utensils &amp; equipment to buy</div><div class="v" id="pAss">₱0</div></div>
         </div>
+        <h3 style="margin:14px 0 6px">Estimated food cost</h3>
+        <div class="tiles" style="grid-template-columns:repeat(4,1fr)">
+          <div class="tile"><div class="k">Cost per guest</div><div class="v" id="cPer">₱0</div><div class="note" id="cPerSub"></div></div>
+          <div class="tile"><div class="k">Food cost % of price</div><div class="v" id="cPct">0%</div><div class="note" id="cPctSub">Target 35–45%</div></div>
+          <div class="tile"><div class="k">Cost for this night</div><div class="v" id="cNight">₱0</div><div class="note" id="cNightSub"></div></div>
+          <div class="tile"><div class="k">Est. gross profit</div><div class="v" id="cGross">₱0</div><div class="note" id="cGrossSub"></div></div>
+        </div>
         <h3 style="margin:14px 0 6px">Food, drinks &amp; supplies</h3>
         <div class="tblwrap"><table class="t" id="pTbl"></table></div>
         <div class="row" style="margin-top:10px"><button class="btn" id="pBuyBtn">Record these as bought…</button><span class="note">Opens Purchases with the shopping list filled in.</span></div>
@@ -448,14 +455,24 @@ h3{font-size:16px}
     $("pHeads").textContent = prep.heads;
     $("pCons").textContent = peso(prep.consumables.reduce((s,i)=>s+i.estCost,0));
     $("pAss").textContent = peso(prep.assets.reduce((s,i)=>s+i.estCost,0));
+    const c = prep.cost;
+    $("cPer").textContent = peso(c.perGuest);
+    $("cPerSub").textContent = "Food "+peso(c.perGuestFood)+" + supplies "+peso(c.perGuestSupplies)+" · price "+peso(c.price);
+    $("cPct").textContent = c.foodCostPct.toFixed(1)+"%";
+    $("cPct").className = "v "+(c.foodCostPct>50?"neg":c.foodCostPct>45?"":"pos");
+    $("cPctSub").textContent = c.foodCostPct>50 ? "Too high. Target 35–45%" : c.foodCostPct>45 ? "A bit high. Target 35–45%" : "Good. Target 35–45%";
+    $("cNight").textContent = peso(c.nightCost); $("cNightSub").textContent = prep.heads+" guest(s) × "+peso(c.perGuest);
+    $("cGross").textContent = peso(c.nightGross); $("cGross").className = "v "+(c.nightGross<0?"neg":"");
+    $("cGrossSub").textContent = "Sales "+peso(c.nightSales)+" − food cost, before wages & rent";
     const t=$("pTbl"); t.textContent="";
-    t.appendChild(el("tr",{}, el("th",{text:"Item"}), el("th",{class:"n",text:"Per guest"}), el("th",{class:"n",text:"Need"}), el("th",{class:"n",text:"In stock"}), el("th",{class:"n",text:"To buy"}), el("th",{class:"n",text:"Est. cost"})));
-    if(!prep.heads) t.appendChild(el("tr",{}, el("td",{colspan:6,class:"note",text:"No guests booked for this night yet, so nothing is needed. Pick another night."})));
+    t.appendChild(el("tr",{}, el("th",{text:"Item"}), el("th",{class:"n",text:"Per guest"}), el("th",{class:"n",text:"Need"}), el("th",{class:"n",text:"In stock"}), el("th",{class:"n",text:"To buy"}), el("th",{class:"n",text:"Est. cost"}), el("th",{class:"n",text:"Cost / guest"})));
+    if(!prep.heads) t.appendChild(el("tr",{}, el("td",{colspan:7,class:"note",text:"No guests booked for this night yet, so nothing is needed. Pick another night."})));
     let cat=null;
     prep.consumables.forEach(i=>{
-      if(i.category!==cat){ cat=i.category; t.appendChild(el("tr",{class:"grp"}, el("td",{colspan:6,text:cat}))); }
+      if(i.category!==cat){ cat=i.category; t.appendChild(el("tr",{class:"grp"}, el("td",{colspan:7,text:cat}))); }
       t.appendChild(el("tr",{}, el("td",{text:i.name}), el("td",{class:"n",text:qty(i.perHead)+" "+i.unit}), el("td",{class:"n",text:qty(i.need)+" "+i.unit}),
-        el("td",{class:"n",text:qty(i.stock)}), el("td",{class:"n "+(i.toBuy>0?"low":"okc"),text:i.toBuy>0?qty(i.toBuy)+" "+i.unit:"OK"}), el("td",{class:"n",text:i.toBuy>0?peso(i.estCost):"—"})));
+        el("td",{class:"n",text:qty(i.stock)}), el("td",{class:"n "+(i.toBuy>0?"low":"okc"),text:i.toBuy>0?qty(i.toBuy)+" "+i.unit:"OK"}), el("td",{class:"n",text:i.toBuy>0?peso(i.estCost):"—"}),
+        el("td",{class:"n",text:peso(Math.round(i.perHead*i.cost*100)/100)})));
     });
     const t2=$("pTbl2"); t2.textContent="";
     t2.appendChild(el("tr",{}, el("th",{text:"Item"}), el("th",{class:"n",text:"Need"}), el("th",{class:"n",text:"Have"}), el("th",{class:"n",text:"To buy"}), el("th",{class:"n",text:"Est. cost"})));

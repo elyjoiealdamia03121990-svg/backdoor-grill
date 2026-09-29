@@ -221,7 +221,17 @@ module.exports = function makeBackoffice(pool, { todayManila, addDays, isValidDa
         const toBuy = Math.max(0, i.needQty - i.stock);
         return { ...i, toBuy, estCost: Math.round(toBuy * i.cost) };
       });
-      res.json({ date, heads, buffer: extra * 100, consumables, assets });
+      // Estimated cost per guest from the item list (use per guest × cost per unit)
+      const cfgRow = (await pool.query("SELECT data FROM config WHERE id = 1")).rows[0];
+      const price = Number((cfgRow && cfgRow.data.price) || 0);
+      const perGuestFood = consumables.filter(i => i.category !== "Supplies").reduce((s, i) => s + i.perHead * i.cost, 0);
+      const perGuestSupplies = consumables.filter(i => i.category === "Supplies").reduce((s, i) => s + i.perHead * i.cost, 0);
+      const perGuest = perGuestFood + perGuestSupplies;
+      const r2 = x => Math.round(x * 100) / 100;
+      res.json({ date, heads, buffer: extra * 100, consumables, assets,
+        cost: { price, perGuestFood: r2(perGuestFood), perGuestSupplies: r2(perGuestSupplies), perGuest: r2(perGuest),
+          foodCostPct: price ? r2(perGuest / price * 100) : 0,
+          nightCost: r2(perGuest * heads), nightSales: price * heads, nightGross: r2((price - perGuest) * heads) } });
     });
 
     // ---- Purchases ----
