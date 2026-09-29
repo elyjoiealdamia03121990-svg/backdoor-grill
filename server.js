@@ -21,7 +21,7 @@ const pool = new Pool({
 const DEFAULTS = {
   price: 349, capacity: 40, maxPax: 10, daysAhead: 14,
   cutoffHour: 12, cutoffDaysBefore: 0,
-  gcashName: "(ibutang ang GCash name)", gcashNumber: "09XX XXX XXXX",
+  gcashName: "(set GCash name in admin)", gcashNumber: "09XX XXX XXXX",
   timeLabel: "6:00–8:30 PM", openDays: [0, 1, 2, 3, 4, 5, 6], closedDates: [],
 };
 const STATUSES = ["pending", "confirmed", "arrived", "noshow", "cancelled"];
@@ -61,10 +61,10 @@ function cutoffInstant(s, cfg) { const [y, m, d] = s.split("-").map(Number); ret
 function isValidDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(s + "T00:00:00Z").toISOString().slice(0, 10) === s; }
 
 function dayClosedReason(date, cfg) {
-  if (!cfg.openDays.includes(dowOf(date)) || (cfg.closedDates || []).includes(date)) return "Sirado ang gabii nga napili.";
-  if (Date.now() >= cutoffInstant(date, cfg)) return "Lapas na sa cut-off ang gabii nga napili.";
+  if (!cfg.openDays.includes(dowOf(date)) || (cfg.closedDates || []).includes(date)) return "That night is closed.";
+  if (Date.now() >= cutoffInstant(date, cfg)) return "Booking for that night is already closed (past the cut-off).";
   const last = addDays(todayManila(), cfg.daysAhead - 1);
-  if (date < todayManila() || date > last) return "Dili pa pwede i-book ang maong petsa.";
+  if (date < todayManila() || date > last) return "That date is not open for booking yet.";
   return null;
 }
 
@@ -84,7 +84,7 @@ function readCookie(req, name) {
 }
 function requireAdmin(req, res, next) {
   if (validToken(readCookie(req, "adm"))) return next();
-  res.status(401).json({ error: "Kinahanglan mag-login." });
+  res.status(401).json({ error: "Please log in." });
 }
 
 // ---- Simple rate limit per IP ----
@@ -94,7 +94,7 @@ function limit(max, windowMs) {
     const key = req.path + "|" + (req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim();
     const now = Date.now();
     const arr = (hits.get(key) || []).filter(t => now - t < windowMs);
-    if (arr.length >= max) return res.status(429).json({ error: "Daghan ra kaayo nga sulay. Paghulat og pipila ka minuto." });
+    if (arr.length >= max) return res.status(429).json({ error: "Too many attempts. Please wait a few minutes." });
     arr.push(now); hits.set(key, arr); next();
   };
 }
@@ -139,11 +139,11 @@ app.post("/api/bookings", limit(8, 15 * 60e3), wrap(async (req, res) => {
   const phone = String(b.phone || "").trim().slice(0, 20);
   const note = String(b.note || "").trim().slice(0, 200);
   const gcashRef = String(b.gcashRef || "").replace(/\s/g, "").slice(0, 30);
-  if (!isValidDate(date)) return res.status(400).json({ error: "Sayop ang petsa." });
-  if (!name) return res.status(400).json({ error: "Ibutang ang imong pangalan." });
-  if (phone.replace(/\D/g, "").length < 10) return res.status(400).json({ error: "Sayop ang mobile number." });
-  if (gcashRef.length < 6) return res.status(400).json({ error: "Ibutang ang GCash reference number." });
-  if (!b.agree) return res.status(400).json({ error: "Kinahanglan mo-uyon sa rules (non-refundable)." });
+  if (!isValidDate(date)) return res.status(400).json({ error: "Invalid date." });
+  if (!name) return res.status(400).json({ error: "Please enter your name." });
+  if (phone.replace(/\D/g, "").length < 10) return res.status(400).json({ error: "Please enter a valid mobile number." });
+  if (gcashRef.length < 6) return res.status(400).json({ error: "Please enter your GCash reference number." });
+  if (!b.agree) return res.status(400).json({ error: "Please agree to the rules (non-refundable)." });
 
   const client = await pool.connect();
   try {
@@ -151,14 +151,14 @@ app.post("/api/bookings", limit(8, 15 * 60e3), wrap(async (req, res) => {
     // One booking at a time per night, so two people can't take the last slots together.
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["night:" + date]);
     const cfg = await getConfig(client);
-    if (!Number.isInteger(pax) || pax < 1 || pax > cfg.maxPax) { await client.query("ROLLBACK"); return res.status(400).json({ error: `Pwede ra 1 hangtod ${cfg.maxPax} ka ulo matag booking.` }); }
+    if (!Number.isInteger(pax) || pax < 1 || pax > cfg.maxPax) { await client.query("ROLLBACK"); return res.status(400).json({ error: `Each booking can have 1 to ${cfg.maxPax} guests.` }); }
     const reason = dayClosedReason(date, cfg);
     if (reason) { await client.query("ROLLBACK"); return res.status(409).json({ error: reason }); }
     const used = (await client.query(`SELECT COALESCE(SUM(pax),0)::int AS h FROM bookings WHERE date = $1 AND status <> 'cancelled'`, [date])).rows[0].h;
     const left = cfg.capacity - used;
-    if (pax > left) { await client.query("ROLLBACK"); return res.status(409).json({ error: left > 0 ? `${left} na lang ka slot ang bakante niana nga gabii.` : "Full na ang gabii nga napili." }); }
+    if (pax > left) { await client.query("ROLLBACK"); return res.status(409).json({ error: left > 0 ? `Only ${left} seat(s) left for that night.` : "That night is fully booked." }); }
     const dup = await client.query("SELECT 1 FROM bookings WHERE gcash_ref = $1", [gcashRef]);
-    if (dup.rowCount) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Nagamit na kini nga GCash reference. I-check ang ref number." }); }
+    if (dup.rowCount) { await client.query("ROLLBACK"); return res.status(409).json({ error: "This GCash reference was already used. Please check the number." }); }
 
     let code;
     for (let i = 0; i < 5; i++) {
@@ -177,7 +177,7 @@ app.post("/api/bookings", limit(8, 15 * 60e3), wrap(async (req, res) => {
 
 app.get("/api/bookings/:code", limit(30, 15 * 60e3), wrap(async (req, res) => {
   const r = await pool.query("SELECT code, date, pax, total, status FROM bookings WHERE code = $1", [String(req.params.code).toUpperCase()]);
-  if (!r.rowCount) return res.status(404).json({ error: "Wala makit-an kana nga code." });
+  if (!r.rowCount) return res.status(404).json({ error: "Booking code not found." });
   res.json(r.rows[0]);
 }));
 
@@ -186,7 +186,7 @@ app.post("/api/admin/login", limit(10, 15 * 60e3), (req, res) => {
   const pw = String((req.body || {}).password || "");
   const ok = ADMIN_PASSWORD && pw.length === ADMIN_PASSWORD.length &&
     crypto.timingSafeEqual(Buffer.from(pw), Buffer.from(ADMIN_PASSWORD));
-  if (!ok) return res.status(401).json({ error: "Sayop ang password." });
+  if (!ok) return res.status(401).json({ error: "Wrong password." });
   const secure = req.secure ? "; Secure" : "";
   res.set("Set-Cookie", `adm=${makeToken()}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${secure}`);
   res.json({ ok: true });
@@ -196,7 +196,7 @@ app.get("/api/admin/me", (req, res) => res.json({ loggedIn: validToken(readCooki
 
 app.get("/api/admin/bookings", requireAdmin, wrap(async (req, res) => {
   const date = String(req.query.date || todayManila());
-  if (!isValidDate(date)) return res.status(400).json({ error: "Sayop ang petsa." });
+  if (!isValidDate(date)) return res.status(400).json({ error: "Invalid date." });
   const r = await pool.query(
     `SELECT code, date, pax, price, total, name, phone, note, gcash_ref AS "gcashRef", status, created_at AS "createdAt"
      FROM bookings WHERE date = $1 ORDER BY created_at`, [date]);
@@ -208,9 +208,9 @@ app.get("/api/admin/bookings", requireAdmin, wrap(async (req, res) => {
 
 app.patch("/api/admin/bookings/:code", requireAdmin, wrap(async (req, res) => {
   const status = String((req.body || {}).status || "");
-  if (!STATUSES.includes(status)) return res.status(400).json({ error: "Sayop ang status." });
+  if (!STATUSES.includes(status)) return res.status(400).json({ error: "Invalid status." });
   const r = await pool.query("UPDATE bookings SET status = $1, updated_at = now() WHERE code = $2 RETURNING code", [status, req.params.code]);
-  if (!r.rowCount) return res.status(404).json({ error: "Wala makit-an ang booking." });
+  if (!r.rowCount) return res.status(404).json({ error: "Booking not found." });
   res.json({ ok: true });
 }));
 
@@ -243,7 +243,7 @@ app.get("/api/admin/export.csv", requireAdmin, wrap(async (req, res) => {
   res.send("﻿" + lines.join("\n"));
 }));
 
-app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: "Naay problema sa server. Sulayi pag-usab." }); });
+app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: "Server error. Please try again." }); });
 
 migrate().then(() => app.listen(PORT, () => console.log("Backdoor Grill running on port " + PORT)))
   .catch(e => { console.error("DB setup failed:", e); process.exit(1); });

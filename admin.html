@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ceb">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -20,7 +20,7 @@
 <div class="wrap">
   <section class="block login" id="loginBox" hidden>
     <h2>Admin login</h2>
-    <p class="sub">Para ra ni sa owner ug staff.</p>
+    <p class="sub">For the owner and staff only.</p>
     <form id="loginForm" class="row">
       <input id="pw" type="password" autocomplete="current-password" placeholder="Password">
       <button class="btn" type="submit">Login</button>
@@ -31,24 +31,24 @@
   <div id="dash" hidden>
     <section class="block" style="margin-top:18px">
       <div class="row" style="justify-content:space-between;margin-bottom:12px">
-        <div><h2>Gabii</h2><p class="sub" style="margin:0" id="aDateLabel">—</p></div>
+        <div><h2>Night</h2><p class="sub" style="margin:0" id="aDateLabel">—</p></div>
         <div class="row">
           <input type="date" id="aDate" style="width:auto">
           <button class="btn ghost sm" id="refreshBtn">Refresh</button>
         </div>
       </div>
       <div class="tiles">
-        <div class="tile"><div class="k">Heads booked</div><div class="v" id="tHeads">0</div></div>
-        <div class="tile"><div class="k">Slots bakante</div><div class="v" id="tLeft">0</div></div>
-        <div class="tile"><div class="k">I-verify pa</div><div class="v" id="tPend">0</div></div>
-        <div class="tile"><div class="k">Bayad nadawat</div><div class="v" id="tRev">₱0</div></div>
+        <div class="tile"><div class="k">Guests booked</div><div class="v" id="tHeads">0</div></div>
+        <div class="tile"><div class="k">Seats left</div><div class="v" id="tLeft">0</div></div>
+        <div class="tile"><div class="k">To verify</div><div class="v" id="tPend">0</div></div>
+        <div class="tile"><div class="k">Payments received</div><div class="v" id="tRev">₱0</div></div>
       </div>
       <div class="meter" aria-hidden="true"><i id="tMeter" style="width:0%"></i></div>
       <div class="filters" id="aFilters">
-        <button data-f="all" aria-pressed="true">Tanan</button>
-        <button data-f="pending" aria-pressed="false">Pending verify</button>
+        <button data-f="all" aria-pressed="true">All</button>
+        <button data-f="pending" aria-pressed="false">Pending</button>
         <button data-f="confirmed" aria-pressed="false">Confirmed</button>
-        <button data-f="arrived" aria-pressed="false">Niabot</button>
+        <button data-f="arrived" aria-pressed="false">Arrived</button>
         <button data-f="noshow" aria-pressed="false">No-show</button>
         <button data-f="cancelled" aria-pressed="false">Cancelled</button>
       </div>
@@ -56,30 +56,30 @@
     </section>
 
     <section class="block">
-      <h2>Umaabot nga gabii</h2>
-      <p class="sub">Pila na ka ulo ang naka-book. I-tap para ablihan.</p>
+      <h2>Upcoming nights</h2>
+      <p class="sub">Guests booked per night. Tap a night to open it.</p>
       <div class="list" id="nights"></div>
     </section>
 
     <section class="block">
       <h2>Settings</h2>
-      <p class="sub">Presyo, slots, cut-off ug GCash nga makita sa customers.</p>
+      <p class="sub">Price, seats, cut-off and GCash details customers see.</p>
       <div class="fields">
-        <label class="f">Presyo matag ulo (₱)<input id="sPrice" type="number" min="1"></label>
-        <label class="f">Max heads matag gabii<input id="sCap" type="number" min="1"></label>
-        <label class="f">Max heads matag booking<input id="sMaxPax" type="number" min="1"></label>
-        <label class="f">Pila ka adlaw abante makita<input id="sDays" type="number" min="1" max="60"></label>
-        <label class="f">Cut-off nga oras<select id="sCutHour"></select></label>
-        <label class="f">Cut-off nga adlaw<select id="sCutDay"><option value="0">Sa adlaw mismo</option><option value="1">Usa ka adlaw sa wala pa</option></select></label>
+        <label class="f">Price per person (₱)<input id="sPrice" type="number" min="1"></label>
+        <label class="f">Max guests per night<input id="sCap" type="number" min="1"></label>
+        <label class="f">Max guests per booking<input id="sMaxPax" type="number" min="1"></label>
+        <label class="f">Days shown ahead<input id="sDays" type="number" min="1" max="60"></label>
+        <label class="f">Cut-off time<select id="sCutHour"></select></label>
+        <label class="f">Cut-off day<select id="sCutDay"><option value="0">Same day</option><option value="1">Day before</option></select></label>
         <label class="f">GCash name<input id="sGName"></label>
         <label class="f">GCash number<input id="sGNum" class="mono"></label>
-        <label class="f">Grill time (label)<input id="sTime"></label>
+        <label class="f">Grill hours (label)<input id="sTime"></label>
         <label class="f">Close specific dates <span class="h">YYYY-MM-DD, comma</span><input id="sClosed" placeholder="2026-12-25, 2027-01-01"></label>
-        <div class="f" style="grid-column:1/-1">Bukas nga adlaw<div class="wk" id="sOpen"></div></div>
+        <div class="f" style="grid-column:1/-1">Open days<div class="wk" id="sOpen"></div></div>
       </div>
       <div class="row" style="margin-top:14px">
-        <button class="btn" id="sSave">I-save ang settings</button>
-        <a class="btn ghost" href="/api/admin/export.csv" style="text-decoration:none">Download tanan bookings (CSV)</a>
+        <button class="btn" id="sSave">Save settings</button>
+        <a class="btn ghost" href="/api/admin/export.csv" style="text-decoration:none">Download all bookings (CSV)</a>
         <span class="msg" id="sMsg" style="margin:0" role="status"></span>
       </div>
     </section>
@@ -89,9 +89,9 @@
 <script>
 (function(){
   const $ = id => document.getElementById(id);
-  const DOW = ["Dom","Lun","Mar","Miy","Huw","Biy","Sab"];
-  const MON = ["Ene","Peb","Mar","Abr","May","Hun","Hul","Ago","Set","Okt","Nob","Dis"];
-  const STL = {pending:"Pending verify",confirmed:"Confirmed",arrived:"Niabot",noshow:"No-show",cancelled:"Cancelled"};
+  const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const STL = {pending:"Pending",confirmed:"Confirmed",arrived:"Arrived",noshow:"No-show",cancelled:"Cancelled"};
   const peso = n => "₱" + Number(n||0).toLocaleString("en-PH");
   const dowOf = s => { const [y,m,d]=s.split("-").map(Number); return new Date(Date.UTC(y,m-1,d)).getUTCDay(); };
   const niceDate = s => { const [,m,d]=s.split("-").map(Number); return DOW[dowOf(s)]+", "+MON[m-1]+" "+d; };
@@ -102,7 +102,7 @@
     const r = await fetch(url, opts);
     if(r.status===401){ showLogin(); throw new Error("login"); }
     const j = await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error(j.error||"Naay problema.");
+    if(!r.ok) throw new Error(j.error||"Something went wrong.");
     return j;
   }
   function showLogin(){ $("loginBox").hidden=false; $("dash").hidden=true; $("logoutBtn").hidden=true; }
@@ -114,7 +114,7 @@
       const r=await fetch("/api/admin/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:$("pw").value})});
       const j=await r.json(); if(!r.ok){ m.className="msg err"; m.textContent=j.error; return; }
       $("pw").value=""; m.textContent=""; showDash(); load(true);
-    }catch(err){ m.className="msg err"; m.textContent="Walay koneksyon."; }
+    }catch(err){ m.className="msg err"; m.textContent="No connection."; }
   };
   $("logoutBtn").onclick=async()=>{ await fetch("/api/admin/logout",{method:"POST"}); showLogin(); };
 
@@ -139,7 +139,7 @@
     const el=$("aList"); el.textContent="";
     const shown=list.filter(b=>filter==="all"||b.status===filter);
     if(!shown.length){ const e=document.createElement("div"); e.className="empty";
-      e.textContent=list.length?"Walay booking sa kini nga filter.":"Wala pay booking niini nga gabii."; el.appendChild(e); }
+      e.textContent=list.length?"No bookings match this filter.":"No bookings for this night yet."; el.appendChild(e); }
     shown.forEach(b=>{
       const c=document.createElement("div"); c.className="bk";
       const who=document.createElement("div"); who.className="who"; who.textContent=b.name+" · "+b.pax+" pax";
@@ -150,21 +150,21 @@
       if(b.note){ const s=document.createElement("span"); s.textContent="Note: "+b.note; meta.appendChild(s); }
       const acts=document.createElement("div"); acts.className="acts";
       const add=(label,status,ghost)=>{ const x=document.createElement("button"); x.className="btn sm"+(ghost?" ghost":""); x.textContent=label;
-        x.onclick=async()=>{ x.disabled=true; try{ await api("/api/admin/bookings/"+b.code,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status})}); load(); }catch(e){ x.disabled=false; x.textContent="Wala na-save"; } };
+        x.onclick=async()=>{ x.disabled=true; try{ await api("/api/admin/bookings/"+b.code,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status})}); load(); }catch(e){ x.disabled=false; x.textContent="Not saved"; } };
         acts.appendChild(x); };
-      if(b.status==="pending"){ add("GCash verified ✓","confirmed"); add("Cancel (sayop/walay bayad)","cancelled",true); }
-      if(b.status==="confirmed"){ add("Niabot na","arrived"); add("No-show","noshow",true); }
-      if(["arrived","noshow","cancelled"].includes(b.status)) add("Ibalik sa confirmed","confirmed",true);
+      if(b.status==="pending"){ add("GCash verified ✓","confirmed"); add("Cancel (no/invalid payment)","cancelled",true); }
+      if(b.status==="confirmed"){ add("Mark arrived","arrived"); add("No-show","noshow",true); }
+      if(["arrived","noshow","cancelled"].includes(b.status)) add("Back to confirmed","confirmed",true);
       c.append(who,pill,meta,acts); el.appendChild(c);
     });
 
     const n=$("nights"); n.textContent="";
     const upcoming=data.nights.filter(x=>x.date>=data.today);
-    if(!upcoming.length){ const e=document.createElement("div"); e.className="empty"; e.textContent="Wala pay booking sa umaabot nga gabii."; n.appendChild(e); }
+    if(!upcoming.length){ const e=document.createElement("div"); e.className="empty"; e.textContent="No bookings for upcoming nights yet."; n.appendChild(e); }
     upcoming.forEach(x=>{
       const b=document.createElement("button"); b.className="bk"; b.style.cssText="text-align:left;cursor:pointer;font:inherit;color:inherit";
       const w=document.createElement("div"); w.className="who"; w.textContent=niceDate(x.date);
-      const v=document.createElement("span"); v.className="mono"; v.textContent=x.heads+" / "+data.config.capacity+(x.pending?" · "+x.pending+" i-verify":"");
+      const v=document.createElement("span"); v.className="mono"; v.textContent=x.heads+" / "+data.config.capacity+(x.pending?" · "+x.pending+" to verify":"");
       b.append(w,v); b.onclick=()=>{ date=x.date; load(); window.scrollTo({top:0,behavior:"smooth"}); }; n.appendChild(b);
     });
   }
@@ -189,7 +189,7 @@
         cutoffHour:$("sCutHour").value,cutoffDaysBefore:$("sCutDay").value,gcashName:$("sGName").value,gcashNumber:$("sGNum").value,
         timeLabel:$("sTime").value,closedDates:$("sClosed").value.split(",").map(s=>s.trim()).filter(Boolean),
         openDays:DOW.map((_,i)=>i).filter(i=>$("sOpen"+i).checked)})});
-      fillSettings(j.config); m.className="msg ok"; m.textContent="Na-save."; load();
+      fillSettings(j.config); m.className="msg ok"; m.textContent="Saved."; load();
     }catch(e){ if(e.message!=="login"){ m.className="msg err"; m.textContent=e.message; } }
   };
 
