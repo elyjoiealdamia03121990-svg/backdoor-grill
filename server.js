@@ -25,6 +25,7 @@ const DEFAULTS = {
   gcashName: "(set GCash name in admin)", gcashNumber: "09XX XXX XXXX",
   timeLabel: "6:00–8:30 PM", openDays: [0, 1, 2, 3, 4, 5, 6], closedDates: [],
   depositPct: 20,
+  maxMoves: 1,
 };
 const STATUSES = ["pending", "confirmed", "arrived", "noshow", "cancelled"];
 
@@ -49,6 +50,7 @@ async function migrate() {
     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deposit INT;
     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS balance INT;
     UPDATE bookings SET deposit = total, balance = 0 WHERE deposit IS NULL;
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS moves INT NOT NULL DEFAULT 0;
   `);
   await backoffice.migrate();
   await pool.query(`INSERT INTO config(id, data) VALUES (1, $1) ON CONFLICT (id) DO NOTHING`, [DEFAULTS]);
@@ -146,8 +148,8 @@ app.get("/api/public", wrap(async (req, res) => {
     const d = addDays(from, i), reason = dayClosedReason(d, cfg), left = Math.max(0, cfg.capacity - (heads[d] || 0));
     days.push({ date: d, left, status: reason ? (Date.now() >= cutoffInstant(d, cfg) ? "cutoff" : "closed") : (left > 0 ? "open" : "full") });
   }
-  const { price, maxPax, cutoffHour, cutoffDaysBefore, gcashName, gcashNumber, timeLabel, capacity, depositPct } = cfg;
-  res.json({ config: { price, maxPax, cutoffHour, cutoffDaysBefore, gcashName, gcashNumber, timeLabel, capacity, depositPct }, days, today: from });
+  const { price, maxPax, cutoffHour, cutoffDaysBefore, gcashName, gcashNumber, timeLabel, capacity, depositPct, maxMoves } = cfg;
+  res.json({ config: { price, maxPax, cutoffHour, cutoffDaysBefore, gcashName, gcashNumber, timeLabel, capacity, depositPct, maxMoves }, days, today: from });
 }));
 
 app.post("/api/bookings", limit(8, 15 * 60e3), wrap(async (req, res) => {
@@ -217,7 +219,7 @@ app.get("/api/admin/bookings", requireAdmin, wrap(async (req, res) => {
   const date = String(req.query.date || todayManila());
   if (!isValidDate(date)) return res.status(400).json({ error: "Invalid date." });
   const r = await pool.query(
-    `SELECT code, date, pax, price, total, deposit, balance, name, phone, note, gcash_ref AS "gcashRef", status, created_at AS "createdAt"
+    `SELECT code, date, pax, price, total, deposit, balance, moves, name, phone, note, gcash_ref AS "gcashRef", status, created_at AS "createdAt"
      FROM bookings WHERE date = $1 ORDER BY created_at`, [date]);
   const totals = await pool.query(
     `SELECT date, SUM(pax)::int AS heads, COUNT(*) FILTER (WHERE status='pending')::int AS pending
@@ -231,6 +233,38 @@ app.patch("/api/admin/bookings/:code", requireAdmin, wrap(async (req, res) => {
   const r = await pool.query("UPDATE bookings SET status = $1, arrived_on = CASE WHEN $1 = 'arrived' THEN COALESCE(arrived_on, $3) ELSE NULL END, updated_at = now() WHERE code = $2 RETURNING code", [status, req.params.code, todayManila()]);
   if (!r.rowCount) return res.status(404).json({ error: "Booking not found." });
   res.json({ ok: true });
+}));
+
+// Move a booking to another night (owner/manager). Checks seats on the new night.
+app.post("/api/admin/bookings/:code/move", requireAdmin, wrap(async (req, res) => {
+  const date = String((req.body || {}).date || "");
+  if (!isValidDate(date)) return res.status(400).json({ error: "Choose a valid date." });
+  if (date < todayManila()) return res.status(400).json({ error: "You cannot move a booking to a past date." });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["night:" + date]);
+    const cfg = await getConfig(client);
+    const b = (await client.query("SELECT pax, date, status, moves FROM bookings WHERE code = $1 FOR UPDATE", [req.params.code])).rows[0];
+    if (!b) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Booking not found." }); }
+    if (b.date === date) { await client.query("ROLLBACK"); return res.json({ ok: true }); }
+    if (["arrived", "cancelled"].includes(b.status)) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Only pending, confirmed or no-show bookings can be moved." }); }
+    const maxMoves = Number(cfg.maxMoves ?? 1);
+    if (b.moves >= maxMoves) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: maxMoves ? `This booking was already moved ${b.moves} time(s). The limit is ${maxMoves}.` : "Moving bookings is turned off in Settings." });
+    }
+    const used = (await client.query(`SELECT COALESCE(SUM(pax),0)::int AS h FROM bookings WHERE date = $1 AND status <> 'cancelled'`, [date])).rows[0].h;
+    if (b.pax > cfg.capacity - used && !(req.body || {}).force) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: `Only ${Math.max(0, cfg.capacity - used)} seat(s) left on that night.`, full: true });
+    }
+    const newStatus = b.status === "noshow" ? "confirmed" : b.status;
+    await client.query("UPDATE bookings SET date = $1, status = $2, moves = moves + 1, note = TRIM(note || ' (moved from ' || $3 || ')'), updated_at = now() WHERE code = $4",
+      [date, newStatus, b.date, req.params.code]);
+    await client.query("COMMIT");
+    res.json({ ok: true });
+  } catch (e) { await client.query("ROLLBACK").catch(() => {}); throw e; } finally { client.release(); }
 }));
 
 app.put("/api/admin/config", requireAdmin, wrap(async (req, res) => {
@@ -248,6 +282,7 @@ app.put("/api/admin/config", requireAdmin, wrap(async (req, res) => {
     gcashNumber: String(b.gcashNumber ?? cur.gcashNumber).slice(0, 30),
     timeLabel: String(b.timeLabel || cur.timeLabel).slice(0, 40),
     depositPct: int(b.depositPct, 0, 100, cur.depositPct),
+    maxMoves: int(b.maxMoves, 0, 10, cur.maxMoves ?? 1),
     cashierPin: /^\d{4,8}$/.test(String(b.cashierPin || "")) ? String(b.cashierPin) : (b.cashierPin === "" ? "" : (cur.cashierPin || "")),
     openDays: Array.isArray(b.openDays) ? [...new Set(b.openDays.map(Number).filter(n => n >= 0 && n <= 6))] : cur.openDays,
     closedDates: Array.isArray(b.closedDates) ? b.closedDates.map(String).filter(isValidDate).slice(0, 100) : cur.closedDates,

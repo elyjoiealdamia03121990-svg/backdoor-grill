@@ -265,6 +265,7 @@ h3{font-size:16px}
         <div class="fields">
           <label class="f">Price per person (₱)<input id="sPrice" type="number" min="1"></label>
           <label class="f">Down payment (% of total)<input id="sDep" type="number" min="0" max="100"></label>
+          <label class="f">Moves allowed per booking <span class="h">0 = no moving</span><input id="sMoves" type="number" min="0" max="10"></label>
           <label class="f">Max guests per night<input id="sCap" type="number" min="1"></label>
           <label class="f">Max guests per booking<input id="sMaxPax" type="number" min="1"></label>
           <label class="f">Days shown ahead<input id="sDays" type="number" min="1" max="60"></label>
@@ -392,7 +393,22 @@ h3{font-size:16px}
       if(b.status==="pending"){ add("GCash down payment verified ✓","confirmed"); add("Cancel (no/invalid payment)","cancelled",true); }
       if(b.status==="confirmed"){ add("Arrived · balance paid","arrived"); add("No-show","noshow",true); add("Cancel","cancelled",true); }
       if(["arrived","noshow","cancelled"].includes(b.status)) add("Back to confirmed","confirmed",true);
-      box.appendChild(el("div",{class:"bk"}, el("div",{class:"who",text:b.name+" · "+b.pax+" pax"}), el("span",{class:"pill st-"+b.status,text:STL[b.status]}), meta, acts));
+      let moveBox=null;
+      const movesLeft=(bData.config.maxMoves??1)-(b.moves||0);
+      if(["pending","confirmed","noshow"].includes(b.status) && movesLeft>0){
+        const dIn=el("input",{type:"date",min:TODAY,value:b.date,style:"width:auto"});
+        const msg=el("span",{class:"msg",style:"margin:0"});
+        let force=false;
+        const go=el("button",{class:"btn sm",text:"Move",onclick:async()=>{
+          if(!dIn.value || dIn.value===b.date){ msg.className="msg err"; msg.textContent="Pick a different night."; return; }
+          go.disabled=true;
+          try{ await send("POST","/api/admin/bookings/"+b.code+"/move",{date:dIn.value,force}); bDate=dIn.value; LOADERS.bookings(); }
+          catch(e){ go.disabled=false; msg.className="msg err"; msg.textContent=e.message; if(/seat/.test(e.message)){ force=true; go.textContent="Move anyway"; } }
+        }});
+        moveBox=el("div",{class:"acts",hidden:true}, el("span",{text:"New night:"}), dIn, go, el("button",{class:"btn ghost sm",text:"Close",onclick:()=>{ moveBox.hidden=true; }}), msg);
+        acts.appendChild(el("button",{class:"btn ghost sm",text:"Move to another night ("+movesLeft+" left)",onclick:()=>{ moveBox.hidden=false; }}));
+      }
+      box.appendChild(el("div",{class:"bk"}, el("div",{class:"who",text:b.name+" · "+b.pax+" pax"}), el("span",{class:"pill st-"+b.status,text:STL[b.status]}), meta, acts, moveBox));
     });
     const n=$("nights"); n.textContent="";
     const up=bData.nights.filter(x=>x.date>=bData.today);
@@ -616,7 +632,7 @@ h3{font-size:16px}
   // ================= SETTINGS =================
   LOADERS.settings = async () => { try { const d=await api("/api/admin/bookings?date="+TODAY); fillSettings(d.config); } catch(e){} };
   function fillSettings(c){
-    $("sPrice").value=c.price; $("sDep").value=c.depositPct; $("sCap").value=c.capacity; $("sMaxPax").value=c.maxPax; $("sDays").value=c.daysAhead;
+    $("sPrice").value=c.price; $("sDep").value=c.depositPct; $("sMoves").value=c.maxMoves??1; $("sCap").value=c.capacity; $("sMaxPax").value=c.maxPax; $("sDays").value=c.daysAhead;
     $("sCutHour").value=c.cutoffHour; $("sCutDay").value=c.cutoffDaysBefore; $("sGName").value=c.gcashName; $("sGNum").value=c.gcashNumber;
     $("sTime").value=c.timeLabel; $("sPin").value=c.cashierPin||""; $("sClosed").value=(c.closedDates||[]).join(", ");
     DOW.forEach((_,i)=>$("sOpen"+i).checked=c.openDays.includes(i));
@@ -625,7 +641,7 @@ h3{font-size:16px}
     const pin=$("sPin").value.trim();
     if(pin && !/^\d{4,8}$/.test(pin)) return flash("sMsg",false,"Cashier PIN must be 4 to 8 digits.");
     try{
-      const j=await send("PUT","/api/admin/config",{price:$("sPrice").value,depositPct:$("sDep").value,capacity:$("sCap").value,maxPax:$("sMaxPax").value,daysAhead:$("sDays").value,
+      const j=await send("PUT","/api/admin/config",{price:$("sPrice").value,depositPct:$("sDep").value,maxMoves:$("sMoves").value,capacity:$("sCap").value,maxPax:$("sMaxPax").value,daysAhead:$("sDays").value,
         cutoffHour:$("sCutHour").value,cutoffDaysBefore:$("sCutDay").value,gcashName:$("sGName").value,gcashNumber:$("sGNum").value,timeLabel:$("sTime").value,cashierPin:pin,
         closedDates:$("sClosed").value.split(",").map(s=>s.trim()).filter(Boolean),openDays:DOW.map((_,i)=>i).filter(i=>$("sOpen"+i).checked)});
       fillSettings(j.config); flash("sMsg",true,"Saved.");

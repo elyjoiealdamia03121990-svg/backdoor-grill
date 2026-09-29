@@ -76,7 +76,7 @@
         <label class="f" style="margin-bottom:12px">GCash reference no.<input id="fRef" inputmode="numeric" placeholder="13-digit ref no." class="mono" maxlength="30"></label>
         <ul class="terms">
           <li>The down payment is non-refundable. If you cannot make it, we keep it to cover your reserved seats.</li>
-          <li>You may move to another night if you message us before the cut-off and seats are available.</li>
+          <li>You may move your booking to another night <b id="movesTxt">once</b> if you message us before the cut-off and seats are available.</li>
           <li>Arrive by 6:00 PM. Last call for the grill is 8:15 PM; we close at 8:30 PM.</li>
           <li>Excessive leftovers are charged.</li>
         </ul>
@@ -131,7 +131,7 @@
     paint();
   }
   function paint(){
-    $("hPrice").textContent = cfg.price; $("hTime").textContent = cfg.timeLabel; $("hDep").textContent = cfg.depositPct + "%";
+    $("hPrice").textContent = cfg.price; $("hTime").textContent = cfg.timeLabel; $("hDep").textContent = cfg.depositPct + "%"; $("movesTxt").textContent = cfg.maxMoves==1?"once":cfg.maxMoves==2?"twice":(cfg.maxMoves||0)+" times";
     $("hCut").textContent = hourLabel(cfg.cutoffHour) + (cfg.cutoffDaysBefore ? " the day before" : " on the day itself");
     $("pName").textContent = cfg.gcashName; $("pNum").textContent = cfg.gcashNumber;
     const el = $("days"); el.textContent = "";
